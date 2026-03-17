@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Health from "./pages/Health";
 import Settings from "./pages/Settings";
 import Sessions from "./pages/Sessions";
+import Scheduler from "./pages/Scheduler";
 import QuickPrompt from "./components/QuickPrompt";
 import { useProfilesStore } from "./lib/store";
 
@@ -64,6 +65,8 @@ export default function App() {
             <Settings />
           ) : page === "sessions" ? (
             <Sessions />
+          ) : page === "scheduler" ? (
+            <Scheduler />
           ) : (
             <>
               <h1 className="text-xl font-semibold capitalize">{page}</h1>
