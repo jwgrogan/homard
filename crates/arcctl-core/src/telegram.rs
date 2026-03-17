@@ -17,13 +17,25 @@ pub fn chunk_text(text: &str, max_len: usize) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut remaining = text;
     while remaining.len() > max_len {
+        // Find split point: newline > space > char boundary
         let split_at = if let Some(pos) = remaining[..max_len].rfind('\n') {
             pos + 1
         } else if let Some(pos) = remaining[..max_len].rfind(' ') {
             pos + 1
         } else {
-            max_len
+            // Hard split: find largest char boundary at or before max_len
+            let mut boundary = max_len;
+            while !remaining.is_char_boundary(boundary) {
+                boundary -= 1;
+            }
+            boundary
         };
+
+        // Guard: if split_at == 0 we'd loop forever (shouldn't happen with valid UTF-8 + max_len > 0)
+        if split_at == 0 {
+            break;
+        }
+
         chunks.push(remaining[..split_at].to_string());
         remaining = &remaining[split_at..];
     }
@@ -69,6 +81,9 @@ impl TelegramClient {
     }
 
     pub async fn chunk_and_send(&self, chat_id: i64, text: &str) -> Result<Vec<i32>> {
+        if text.is_empty() {
+            return Ok(vec![]);
+        }
         let chunks = chunk_text(text, TELEGRAM_MAX_CHARS);
         let mut message_ids = Vec::new();
         for chunk in chunks {
@@ -79,6 +94,8 @@ impl TelegramClient {
     }
 
     pub async fn send_with_retry(&self, chat_id: i64, text: &str, max_retries: u32) -> Result<Vec<i32>> {
+        // NOTE: On retry, all chunks are re-sent from the beginning.
+        // This is acceptable for the personal assistant use case where messages are typically short.
         let mut last_err = ArcctlError::Telegram("no attempts".to_string());
         let backoff_secs = [1u64, 2, 4, 8, 16];
         for attempt in 0..=max_retries {
@@ -171,8 +188,8 @@ impl TelegramStreamReporter {
     }
 
     /// Send final result. Edits the active "running" message with the completed output.
-    pub async fn send_final(&self, job_name: &str, success: bool, error: Option<&str>, duration_ms: Option<i64>) {
-        let status = if success { "✅" } else { "❌" };
+    pub async fn send_final(&self, job_name: &str, error: Option<&str>, duration_ms: Option<i64>) {
+        let status = if error.is_none() { "✅" } else { "❌" };
         let duration_str = duration_ms
             .map(|ms| format!(" ({}s)", ms / 1000))
             .unwrap_or_default();
@@ -265,5 +282,18 @@ mod tests {
         let chunks = chunk_text("", 4000);
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0], "");
+    }
+
+    #[test]
+    fn test_chunk_text_multibyte_utf8_no_panic() {
+        // 🎉 is 4 bytes; create a string that would cause a panic with naive byte slicing
+        let emoji = "🎉".repeat(2000); // 8000 bytes, well over 4000
+        // Should not panic
+        let chunks = chunk_text(&emoji, 4000);
+        assert!(chunks.len() >= 2);
+        // Each chunk must be valid UTF-8 (can decode without error)
+        for chunk in &chunks {
+            assert!(std::str::from_utf8(chunk.as_bytes()).is_ok());
+        }
     }
 }
