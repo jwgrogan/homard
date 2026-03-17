@@ -1,0 +1,23 @@
+[package]
+name = "arcctl-tauri"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "arcctl_tauri"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+dirs = "6"
+arcctl-core = { path = "../crates/arcctl-core" }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

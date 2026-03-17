@@ -1,0 +1,16 @@
+[package]
+name = "arcctl-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "arcctl"
+path = "src/main.rs"
+
+[dependencies]
+arcctl-core = { path = "../crates/arcctl-core" }
+clap = { version = "4", features = ["derive"] }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = "0.3"
+anyhow = "1"
