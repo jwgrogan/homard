@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Health from "./pages/Health";
+import Settings from "./pages/Settings";
 
 type Page = "health" | "sessions" | "settings" | "scheduler";
 
@@ -24,6 +25,8 @@ export default function App() {
       <main className="flex-1 p-6">
         {page === "health" ? (
           <Health />
+        ) : page === "settings" ? (
+          <Settings />
         ) : (
           <>
             <h1 className="text-xl font-semibold capitalize">{page}</h1>
