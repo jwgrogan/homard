@@ -25,6 +25,12 @@ pub enum ArcctlError {
 
     #[error("Not found: {0}")]
     NotFound(String),
+
+    #[error("Keychain error: {0}")]
+    Keychain(String),
+
+    #[error("Telegram error: {0}")]
+    Telegram(String),
 }
 
 pub type Result<T> = std::result::Result<T, ArcctlError>;
