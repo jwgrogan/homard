@@ -171,6 +171,18 @@ impl JobExecutor {
                         // Last attempt — finalize with error
                         final_status = RunStatus::Error;
                         self.finalize_run(RunStatus::Error, Some(err_msg))?;
+
+                        // Send Telegram final result via streaming reporter
+                        #[cfg(target_os = "macos")]
+                        if let Some(ref reporter) = self.telegram_reporter {
+                            reporter.send_final(
+                                &self.schedule.name,
+                                self.last_error.as_deref(),
+                                None,
+                            ).await;
+                            self.telegram_delivered = true;
+                        }
+
                         self.deliver_results().await?;
                     }
                 }
@@ -367,7 +379,7 @@ impl JobExecutor {
         };
 
         // Check if this event should trigger delivery
-        if !self.schedule.delivery.on_events.iter().any(|e| e == status_str || e == "complete") {
+        if !self.schedule.delivery.on_events.iter().any(|e| e == status_str) {
             return Ok(());
         }
 

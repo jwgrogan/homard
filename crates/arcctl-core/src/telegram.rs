@@ -174,7 +174,9 @@ impl TelegramStreamReporter {
             let acc = self.accumulated.lock().await;
             if acc.is_empty() { return; }
             let preview = if acc.len() > 3800 {
-                format!("...{}", &acc[acc.len() - 3800..])
+                let mut start = acc.len() - 3800;
+                while !acc.is_char_boundary(start) { start += 1; }
+                format!("...{}", &acc[start..])
             } else {
                 acc.clone()
             };
@@ -199,7 +201,9 @@ impl TelegramStreamReporter {
         } else {
             let acc = self.accumulated.lock().await;
             let summary = if acc.len() > 2000 {
-                format!("...{}", &acc[acc.len() - 2000..])
+                let mut start = acc.len() - 2000;
+                while !acc.is_char_boundary(start) { start += 1; }
+                format!("...{}", &acc[start..])
             } else {
                 acc.clone()
             };

@@ -79,7 +79,7 @@ export function TelegramPanel() {
     return <div className="p-4 text-sm text-gray-400">Loading...</div>;
   }
 
-  const isConfigured = status?.enabled && status?.bot_username;
+  const isConfigured = status?.enabled;
 
   return (
     <div className="space-y-6 p-4">

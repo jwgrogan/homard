@@ -1,5 +1,5 @@
 use arcctl_core::config::{
-    add_paired_chat, generate_pairing_code, validate_pairing_code, ArcctlConfig, ArcctlDirs,
+    add_paired_chat, validate_pairing_code, ArcctlConfig, ArcctlDirs,
 };
 use arcctl_core::telegram::TelegramClient;
 use tauri::Emitter;
@@ -119,11 +119,11 @@ pub async fn run_poller(
                 }
                 Some(Command::Status) | Some(Command::Stop(_)) => {
                     // Recognized command but sender not paired
-                    send_pairing_required(&dirs, &client, chat_id).await;
+                    send_pairing_required(&client, chat_id).await;
                 }
                 None if !is_paired => {
                     // Unknown sender, non-command message
-                    send_pairing_required(&dirs, &client, chat_id).await;
+                    send_pairing_required(&client, chat_id).await;
                 }
                 None => {
                     // Paired sender, non-command message — give a hint
@@ -201,16 +201,8 @@ async fn handle_status(client: &TelegramClient, chat_id: i64) {
         .await;
 }
 
-async fn send_pairing_required(dirs: &ArcctlDirs, client: &TelegramClient, chat_id: i64) {
-    let msg = match generate_pairing_code(dirs) {
-        Ok(code) => format!(
-            "🔒 To pair this Telegram account with arcctl, send:\n\n`/pair {}`\n\nThis code expires in 10 minutes.",
-            code
-        ),
-        Err(_) => {
-            "🔒 Open arcctl and generate a pairing code, then send `/pair <code>`.".to_string()
-        }
-    };
+async fn send_pairing_required(client: &TelegramClient, chat_id: i64) {
+    let msg = "🔒 Open arcctl and generate a pairing code, then send `/pair <code>`.".to_string();
     let _ = client.send_message(chat_id, &msg).await;
 }
 
