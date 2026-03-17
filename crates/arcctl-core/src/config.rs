@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
@@ -10,11 +11,20 @@ use crate::error::ArcctlError;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PairingCode {
+    pub code: String,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelegramConfig {
     pub enabled: bool,
     pub token_keychain_ref: Option<String>,
     pub paired_chat_ids: Vec<String>,
     pub throttle_ms: u64,
+    #[serde(default)]
+    pub pending_pairing_codes: Vec<PairingCode>,
 }
 
 impl Default for TelegramConfig {
@@ -24,6 +34,7 @@ impl Default for TelegramConfig {
             token_keychain_ref: None,
             paired_chat_ids: Vec::new(),
             throttle_ms: 0,
+            pending_pairing_codes: Vec::new(),
         }
     }
 }
@@ -201,6 +212,87 @@ pub fn write_claude_settings(path: &Path, value: &serde_json::Value) -> Result<(
 }
 
 // ---------------------------------------------------------------------------
+// Telegram config helpers
+// ---------------------------------------------------------------------------
+
+const TELEGRAM_KEYCHAIN_SERVICE: &str = "arcctl-telegram";
+const TELEGRAM_KEYCHAIN_ACCOUNT: &str = "bot-token";
+
+/// Store Telegram bot token in Keychain and update config.json with the ref.
+#[cfg(target_os = "macos")]
+pub fn save_telegram_token(dirs: &ArcctlDirs, token: &str) -> Result<()> {
+    crate::keychain::store_secret(TELEGRAM_KEYCHAIN_SERVICE, TELEGRAM_KEYCHAIN_ACCOUNT, token)?;
+    let mut cfg = ArcctlConfig::load_or_default(&dirs.config_path());
+    cfg.telegram.enabled = true;
+    cfg.telegram.token_keychain_ref = Some("arcctl-telegram-bot-token".to_string());
+    cfg.save(&dirs.config_path())?;
+    Ok(())
+}
+
+/// Read Telegram bot token from Keychain. Returns None if not configured.
+#[cfg(target_os = "macos")]
+pub fn get_telegram_token(dirs: &ArcctlDirs) -> Result<Option<String>> {
+    let cfg = ArcctlConfig::load_or_default(&dirs.config_path());
+    if cfg.telegram.token_keychain_ref.is_none() {
+        return Ok(None);
+    }
+    crate::keychain::read_secret(TELEGRAM_KEYCHAIN_SERVICE, TELEGRAM_KEYCHAIN_ACCOUNT)
+}
+
+/// Add a chat_id to the paired list (idempotent).
+pub fn add_paired_chat(dirs: &ArcctlDirs, chat_id: &str) -> Result<()> {
+    let mut cfg = ArcctlConfig::load_or_default(&dirs.config_path());
+    if !cfg.telegram.paired_chat_ids.contains(&chat_id.to_string()) {
+        cfg.telegram.paired_chat_ids.push(chat_id.to_string());
+        cfg.save(&dirs.config_path())?;
+    }
+    Ok(())
+}
+
+/// Remove a chat_id from the paired list.
+pub fn remove_paired_chat(dirs: &ArcctlDirs, chat_id: &str) -> Result<()> {
+    let mut cfg = ArcctlConfig::load_or_default(&dirs.config_path());
+    cfg.telegram.paired_chat_ids.retain(|id| id != chat_id);
+    cfg.save(&dirs.config_path())?;
+    Ok(())
+}
+
+/// Generate a random 8-char alphanumeric pairing code with 10-min expiry.
+pub fn generate_pairing_code(dirs: &ArcctlDirs) -> Result<String> {
+    use rand::Rng;
+    let code: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(8)
+        .map(|c| char::from(c).to_ascii_uppercase())
+        .collect();
+    let now = Utc::now();
+    let pairing_code = PairingCode {
+        code: code.clone(),
+        created_at: now,
+        expires_at: now + chrono::Duration::minutes(10),
+    };
+    let mut cfg = ArcctlConfig::load_or_default(&dirs.config_path());
+    cfg.telegram.pending_pairing_codes.retain(|p| p.expires_at > now);
+    cfg.telegram.pending_pairing_codes.push(pairing_code);
+    cfg.save(&dirs.config_path())?;
+    Ok(code)
+}
+
+/// Validate and consume a pairing code. Returns true if valid+unexpired, false otherwise.
+pub fn validate_pairing_code(dirs: &ArcctlDirs, code: &str) -> Result<bool> {
+    let now = Utc::now();
+    let mut cfg = ArcctlConfig::load_or_default(&dirs.config_path());
+    let found = cfg.telegram.pending_pairing_codes
+        .iter()
+        .any(|p| p.code == code && p.expires_at > now);
+    if found {
+        cfg.telegram.pending_pairing_codes.retain(|p| p.code != code);
+        cfg.save(&dirs.config_path())?;
+    }
+    Ok(found)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -258,6 +350,74 @@ mod tests {
         assert!(dirs.backups_dir().exists());
         // db_path is a file path — parent dir (root) should exist
         assert!(dirs.db_path().parent().unwrap().exists());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_save_telegram_token() {
+        use crate::keychain;
+        let dir = TempDir::new().unwrap();
+        let dirs = ArcctlDirs::new(dir.path().to_path_buf());
+        dirs.ensure_all().unwrap();
+
+        save_telegram_token(&dirs, "test-bot-token-12345").unwrap();
+
+        let cfg = ArcctlConfig::load(&dirs.config_path()).unwrap();
+        assert!(cfg.telegram.enabled);
+        assert_eq!(
+            cfg.telegram.token_keychain_ref,
+            Some("arcctl-telegram-bot-token".to_string())
+        );
+
+        let token = keychain::read_secret("arcctl-telegram", "bot-token").unwrap();
+        assert_eq!(token, Some("test-bot-token-12345".to_string()));
+
+        // Cleanup
+        let _ = keychain::delete_secret("arcctl-telegram", "bot-token");
+    }
+
+    #[test]
+    fn test_add_and_remove_paired_chat() {
+        let dir = TempDir::new().unwrap();
+        let dirs = ArcctlDirs::new(dir.path().to_path_buf());
+        dirs.ensure_all().unwrap();
+
+        add_paired_chat(&dirs, "123456789").unwrap();
+        let cfg = ArcctlConfig::load_or_default(&dirs.config_path());
+        assert!(cfg.telegram.paired_chat_ids.contains(&"123456789".to_string()));
+
+        // Idempotent — add twice
+        add_paired_chat(&dirs, "123456789").unwrap();
+        let cfg = ArcctlConfig::load_or_default(&dirs.config_path());
+        assert_eq!(cfg.telegram.paired_chat_ids.len(), 1);
+
+        remove_paired_chat(&dirs, "123456789").unwrap();
+        let cfg = ArcctlConfig::load_or_default(&dirs.config_path());
+        assert!(!cfg.telegram.paired_chat_ids.contains(&"123456789".to_string()));
+    }
+
+    #[test]
+    fn test_generate_and_validate_pairing_code() {
+        let dir = TempDir::new().unwrap();
+        let dirs = ArcctlDirs::new(dir.path().to_path_buf());
+        dirs.ensure_all().unwrap();
+
+        let code = generate_pairing_code(&dirs).unwrap();
+        assert_eq!(code.len(), 8, "pairing code should be 8 chars");
+        assert!(code.chars().all(|c| c.is_alphanumeric()));
+
+        assert!(validate_pairing_code(&dirs, &code).unwrap());
+        assert!(!validate_pairing_code(&dirs, "WRONGCODE").unwrap());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_get_telegram_token_unconfigured() {
+        let dir = TempDir::new().unwrap();
+        let dirs = ArcctlDirs::new(dir.path().to_path_buf());
+        dirs.ensure_all().unwrap();
+        let token = get_telegram_token(&dirs).unwrap();
+        assert_eq!(token, None);
     }
 
     #[test]

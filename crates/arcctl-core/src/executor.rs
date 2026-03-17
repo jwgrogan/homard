@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use chrono::Utc;
 use rand::Rng;
@@ -6,6 +7,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tracing::{debug, info, warn};
 
 use crate::config::{ArcctlConfig, ArcctlDirs};
+#[cfg(target_os = "macos")]
+use crate::config::get_telegram_token;
 use crate::error::{ArcctlError, Result};
 use crate::schedule::{load_schedule, update_last_session_id};
 use crate::store::Store;
@@ -23,6 +26,8 @@ pub struct JobExecutor {
     log_path: PathBuf,
     captured_session_id: Option<String>,
     last_error: Option<String>,
+    telegram_reporter: Option<Arc<crate::telegram::TelegramStreamReporter>>,
+    telegram_delivered: bool,
 }
 
 impl JobExecutor {
@@ -34,6 +39,24 @@ impl JobExecutor {
         let run_id = uuid::Uuid::new_v4().to_string();
         let log_path = dirs.logs_dir().join(format!("{}.log", run_id));
 
+        // Initialize Telegram reporter if telegram is in delivery channels
+        #[cfg(target_os = "macos")]
+        let telegram_reporter = if schedule.delivery.channels.contains(&"telegram".to_string()) {
+            let config = ArcctlConfig::load_or_default(&dirs.config_path());
+            if config.telegram.enabled && !config.telegram.paired_chat_ids.is_empty() {
+                if let Ok(Some(token)) = get_telegram_token(&dirs) {
+                    let chat_ids: Vec<i64> = config.telegram.paired_chat_ids.iter()
+                        .filter_map(|s| s.parse().ok())
+                        .collect();
+                    let client = Arc::new(crate::telegram::TelegramClient::new(token));
+                    Some(Arc::new(crate::telegram::TelegramStreamReporter::new(client, chat_ids)))
+                } else { None }
+            } else { None }
+        } else { None };
+
+        #[cfg(not(target_os = "macos"))]
+        let telegram_reporter: Option<Arc<crate::telegram::TelegramStreamReporter>> = None;
+
         Ok(Self {
             dirs,
             store,
@@ -42,6 +65,8 @@ impl JobExecutor {
             log_path,
             captured_session_id: None,
             last_error: None,
+            telegram_reporter,
+            telegram_delivered: false,
         })
     }
 
@@ -64,7 +89,12 @@ impl JobExecutor {
             warn!("Profile switch failed: {}", e);
         }
 
-        // 3. Retry loop
+        // 3. Send Telegram start message for streaming preview
+        if let Some(ref reporter) = self.telegram_reporter {
+            reporter.send_start(&self.schedule.name).await;
+        }
+
+        // 4. Retry loop
         let max_attempts = self.schedule.retry.max_attempts.max(1);
         let backoff_seconds = self.schedule.retry.backoff_seconds.clone();
 
@@ -111,6 +141,16 @@ impl JobExecutor {
                                 let _ = update_last_session_id(&self.dirs, &self.schedule.id, sid);
                             }
                         }
+                    }
+
+                    // Send Telegram final result via streaming reporter
+                    if let Some(ref reporter) = self.telegram_reporter {
+                        reporter.send_final(
+                            &self.schedule.name,
+                            self.last_error.as_deref(),
+                            None,
+                        ).await;
+                        self.telegram_delivered = true;
                     }
 
                     // Finalize and deliver
@@ -236,6 +276,7 @@ impl JobExecutor {
         let stdout = child.stdout.take();
         let captured_session_id = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
         let captured_clone = captured_session_id.clone();
+        let reporter_clone = self.telegram_reporter.clone();
 
         let stream_task = async move {
             if let Some(stdout) = stdout {
@@ -246,6 +287,11 @@ impl JobExecutor {
                     let _ = log_file
                         .write_all(format!("{}\n", line).as_bytes())
                         .await;
+
+                    // Feed Telegram streaming reporter
+                    if let Some(ref reporter) = reporter_clone {
+                        reporter.on_jsonl_line(&line).await;
+                    }
 
                     // Try to parse JSONL for session_id
                     if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
@@ -350,7 +396,32 @@ impl JobExecutor {
                     // Already handled by log file
                 }
                 "telegram" => {
-                    info!("[telegram delivery] skipped — Plan 4");
+                    if self.telegram_delivered {
+                        // Already handled by TelegramStreamReporter
+                        continue;
+                    }
+
+                    #[cfg(target_os = "macos")]
+                    {
+                        let config = ArcctlConfig::load_or_default(&self.dirs.config_path());
+                        if !config.telegram.enabled || config.telegram.paired_chat_ids.is_empty() {
+                            info!("[telegram] not configured or no paired chats, skipping");
+                            continue;
+                        }
+                        if let Ok(Some(token)) = get_telegram_token(&self.dirs) {
+                            let client = Arc::new(crate::telegram::TelegramClient::new(token));
+                            let status_emoji = if self.last_error.is_some() { "\u{274C}" } else { "\u{2705}" };
+                            let text = match &self.last_error {
+                                Some(err) => format!("{} *{}* failed\n\n`{}`", status_emoji, self.schedule.name, err),
+                                None => format!("{} *{}* completed", status_emoji, self.schedule.name),
+                            };
+                            for chat_id_str in &config.telegram.paired_chat_ids {
+                                if let Ok(chat_id) = chat_id_str.parse::<i64>() {
+                                    let _ = client.send_with_retry(chat_id, &text, 3).await;
+                                }
+                            }
+                        }
+                    }
                 }
                 other => {
                     warn!("Unknown delivery channel: {}", other);
@@ -425,6 +496,8 @@ mod tests {
             log_path: PathBuf::from("/tmp/test.log"),
             captured_session_id: None,
             last_error: None,
+            telegram_reporter: None,
+            telegram_delivered: false,
         };
 
         let args = executor.build_claude_args();
@@ -459,6 +532,8 @@ mod tests {
             log_path: PathBuf::from("/tmp/test.log"),
             captured_session_id: None,
             last_error: None,
+            telegram_reporter: None,
+            telegram_delivered: false,
         };
 
         let args = executor.build_claude_args();
@@ -489,6 +564,8 @@ mod tests {
             log_path: PathBuf::from("/tmp/test.log"),
             captured_session_id: None,
             last_error: None,
+            telegram_reporter: None,
+            telegram_delivered: false,
         };
 
         let args = executor.build_claude_args();
