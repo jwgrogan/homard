@@ -50,22 +50,6 @@ pub async fn get_telegram_status(state: State<'_, AppState>) -> Result<TelegramS
     let dirs = state.dirs.clone();
     let config = ArcctlConfig::load_or_default(&dirs.config_path());
 
-    // Verify bot connection if enabled
-    #[cfg(target_os = "macos")]
-    let bot_username = if config.telegram.enabled {
-        if let Ok(Some(token)) = arcctl_core::config::get_telegram_token(&dirs) {
-            let client = arcctl_core::telegram::TelegramClient::new(&token);
-            client.verify().await.ok()
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    #[cfg(not(target_os = "macos"))]
-    let bot_username: Option<String> = None;
-
     let is_polling = {
         let handle = state.telegram_poll_handle.lock().unwrap();
         handle.as_ref().map_or(false, |h| !h.is_finished())
@@ -73,7 +57,7 @@ pub async fn get_telegram_status(state: State<'_, AppState>) -> Result<TelegramS
 
     Ok(TelegramStatus {
         enabled: config.telegram.enabled,
-        bot_username,
+        bot_username: None, // Use verify_telegram_token command for live connectivity check
         paired_chat_ids: config.telegram.paired_chat_ids.clone(),
         is_polling,
     })
