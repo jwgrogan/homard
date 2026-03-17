@@ -3,6 +3,9 @@ use security_framework::passwords::{
 };
 use crate::error::{ArcctlError, Result};
 
+/// macOS Keychain error code: item not found
+const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
+
 pub fn store_secret(service: &str, account: &str, secret: &str) -> Result<()> {
     // Delete first to handle update case (set_generic_password errors on existing)
     let _ = delete_generic_password(service, account);
@@ -20,7 +23,7 @@ pub fn read_secret(service: &str, account: &str) -> Result<Option<String>> {
         }
         Err(e) => {
             // errSecItemNotFound = -25300
-            if e.code() == -25300 {
+            if e.code() == ERR_SEC_ITEM_NOT_FOUND {
                 Ok(None)
             } else {
                 Err(ArcctlError::Keychain(e.to_string()))
@@ -33,7 +36,7 @@ pub fn delete_secret(service: &str, account: &str) -> Result<()> {
     match delete_generic_password(service, account) {
         Ok(()) => Ok(()),
         Err(e) => {
-            if e.code() == -25300 {
+            if e.code() == ERR_SEC_ITEM_NOT_FOUND {
                 Ok(()) // already gone
             } else {
                 Err(ArcctlError::Keychain(e.to_string()))

@@ -1,9 +1,10 @@
 pub mod agents;
-pub mod keychain;
 pub mod config;
 pub mod error;
 pub mod executor;
 pub mod health;
+#[cfg(target_os = "macos")]
+pub mod keychain;
 pub mod launchd;
 pub mod process;
 pub mod profile;
