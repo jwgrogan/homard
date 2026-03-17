@@ -27,11 +27,27 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    use tauri::{Emitter, Manager};
+                    use tauri_plugin_global_shortcut::ShortcutState;
+                    if event.state() == ShortcutState::Pressed {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                            let _ = window.emit("open-quick-prompt", ());
+                        }
+                    }
+                })
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .manage(app_state)
         .setup(|app| {
             tray::create_tray(app)?;
+            use tauri_plugin_global_shortcut::GlobalShortcutExt;
+            app.global_shortcut().register("CmdOrCtrl+Shift+C")?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
