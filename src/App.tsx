@@ -1,4 +1,5 @@
 import { useState } from "react";
+import Health from "./pages/Health";
 
 type Page = "health" | "sessions" | "settings" | "scheduler";
 
@@ -21,8 +22,14 @@ export default function App() {
         ))}
       </nav>
       <main className="flex-1 p-6">
-        <h1 className="text-xl font-semibold capitalize">{page}</h1>
-        <p className="text-zinc-400 mt-2">Coming soon.</p>
+        {page === "health" ? (
+          <Health />
+        ) : (
+          <>
+            <h1 className="text-xl font-semibold capitalize">{page}</h1>
+            <p className="text-zinc-400 mt-2">Coming soon.</p>
+          </>
+        )}
       </main>
     </div>
   );
