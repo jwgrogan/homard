@@ -10,6 +10,7 @@ import type {
   Run,
   Schedule,
   DiscoveredPlist,
+  TelegramStatus,
 } from "./types";
 
 export async function runHealthCheck(): Promise<HealthStatus> {
@@ -131,4 +132,37 @@ export async function importLaunchdJob(label: string): Promise<Schedule> {
 
 export async function listScheduleRuns(scheduleId: string, limit?: number, offset?: number): Promise<Run[]> {
   return invoke("list_schedule_runs", { scheduleId, limit, offset });
+}
+
+// --- Telegram ---
+export async function saveTelegramToken(token: string): Promise<void> {
+  return invoke("save_telegram_token_cmd", { token });
+}
+
+export async function verifyTelegramToken(token: string): Promise<string> {
+  return invoke("verify_telegram_token", { token });
+}
+
+export async function getTelegramStatus(): Promise<TelegramStatus> {
+  return invoke("get_telegram_status");
+}
+
+export async function addPairedChat(chatId: string): Promise<void> {
+  return invoke("add_paired_chat_cmd", { chatId });
+}
+
+export async function removePairedChat(chatId: string): Promise<void> {
+  return invoke("remove_paired_chat_cmd", { chatId });
+}
+
+export async function generatePairingCode(): Promise<string> {
+  return invoke("generate_pairing_code_cmd");
+}
+
+export async function startTelegramPolling(): Promise<void> {
+  return invoke("start_telegram_polling");
+}
+
+export async function stopTelegramPolling(): Promise<void> {
+  return invoke("stop_telegram_polling");
 }

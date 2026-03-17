@@ -101,6 +101,14 @@ export interface DiscoveredPlist {
   minute: number | null;
 }
 
+// --- Telegram ---
+export interface TelegramStatus {
+  enabled: boolean;
+  bot_username: string | null;
+  paired_chat_ids: string[];
+  is_polling: boolean;
+}
+
 // --- Runs ---
 export interface Run {
   id: string;

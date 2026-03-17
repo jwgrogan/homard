@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as api from "./tauri";
-import type { ClaudeSettings, McpServerConfig, SessionInfo, Run, Profile, Schedule, DiscoveredPlist } from "./types";
+import type { ClaudeSettings, McpServerConfig, SessionInfo, Run, Profile, Schedule, DiscoveredPlist, TelegramStatus } from "./types";
 
 // --- Settings Store ---
 interface SettingsState {
@@ -260,5 +260,37 @@ export const useSchedulerStore = create<SchedulerState & SchedulerActions>()((se
   fetchScheduleRuns: async (scheduleId, limit, offset) => {
     const runs = await api.listScheduleRuns(scheduleId, limit, offset);
     set({ selectedScheduleRuns: runs });
+  },
+}));
+
+// --- Telegram Store ---
+interface TelegramStore {
+  status: TelegramStatus | null;
+  loading: boolean;
+  pairingCode: string | null;
+  fetchStatus: () => Promise<void>;
+  refreshPairingCode: () => Promise<void>;
+}
+
+export const useTelegramStore = create<TelegramStore>()((set) => ({
+  status: null,
+  loading: false,
+  pairingCode: null,
+  fetchStatus: async () => {
+    set({ loading: true });
+    try {
+      const status = await api.getTelegramStatus();
+      set({ status, loading: false });
+    } catch {
+      set({ loading: false });
+    }
+  },
+  refreshPairingCode: async () => {
+    try {
+      const code = await api.generatePairingCode();
+      set({ pairingCode: code });
+    } catch (e) {
+      console.error("Failed to generate pairing code:", e);
+    }
   },
 }));
