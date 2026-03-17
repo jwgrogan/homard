@@ -65,6 +65,42 @@ export interface CommandInfo {
   description: string | null;
 }
 
+// --- Scheduler ---
+export interface Schedule {
+  id: string;
+  name: string;
+  schedule: string;
+  timezone: string | null;
+  agent: string | null;
+  prompt: string | null;
+  directory: string;
+  profile: string | null;
+  timeout_minutes: number | null;
+  session_mode: "fresh" | "persistent";
+  last_session_id: string | null;
+  delivery: DeliveryConfig;
+  retry: RetryConfig;
+  enabled: boolean;
+}
+
+export interface DeliveryConfig {
+  channels: string[];
+  on: string[];
+}
+
+export interface RetryConfig {
+  max_attempts: number;
+  backoff_seconds: number[];
+}
+
+export interface DiscoveredPlist {
+  label: string;
+  path: string;
+  program_args: string[];
+  hour: number | null;
+  minute: number | null;
+}
+
 // --- Runs ---
 export interface Run {
   id: string;

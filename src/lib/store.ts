@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as api from "./tauri";
-import type { ClaudeSettings, McpServerConfig, SessionInfo, Run, Profile } from "./types";
+import type { ClaudeSettings, McpServerConfig, SessionInfo, Run, Profile, Schedule, DiscoveredPlist } from "./types";
 
 // --- Settings Store ---
 interface SettingsState {
@@ -170,5 +170,95 @@ export const useProfilesStore = create<ProfilesState & ProfilesActions>()((set, 
   importProfile: async (name) => {
     await api.importProfile(name);
     await get().fetchProfiles();
+  },
+}));
+
+// --- Scheduler Store ---
+interface SchedulerState {
+  schedules: Schedule[];
+  discoveredJobs: DiscoveredPlist[];
+  loading: boolean;
+  selectedScheduleId: string | null;
+  selectedScheduleRuns: Run[];
+}
+
+interface SchedulerActions {
+  fetchSchedules: () => Promise<void>;
+  createSchedule: (schedule: Schedule) => Promise<void>;
+  updateSchedule: (schedule: Schedule) => Promise<void>;
+  deleteSchedule: (id: string) => Promise<void>;
+  toggleSchedule: (id: string, enabled: boolean) => Promise<void>;
+  discoverJobs: () => Promise<void>;
+  importJob: (label: string) => Promise<Schedule>;
+  selectSchedule: (id: string | null) => void;
+  fetchScheduleRuns: (scheduleId: string, limit?: number, offset?: number) => Promise<void>;
+}
+
+export const useSchedulerStore = create<SchedulerState & SchedulerActions>()((set, get) => ({
+  schedules: [],
+  discoveredJobs: [],
+  loading: false,
+  selectedScheduleId: null,
+  selectedScheduleRuns: [],
+
+  fetchSchedules: async () => {
+    set({ loading: true });
+    try {
+      const schedules = await api.listSchedules();
+      set({ schedules, loading: false });
+    } catch {
+      set({ loading: false });
+    }
+  },
+
+  createSchedule: async (schedule) => {
+    await api.createSchedule(schedule);
+    await get().fetchSchedules();
+  },
+
+  updateSchedule: async (schedule) => {
+    await api.updateSchedule(schedule);
+    await get().fetchSchedules();
+  },
+
+  deleteSchedule: async (id) => {
+    await api.deleteSchedule(id);
+    set((state) => ({
+      schedules: state.schedules.filter((s) => s.id !== id),
+      selectedScheduleId: state.selectedScheduleId === id ? null : state.selectedScheduleId,
+    }));
+  },
+
+  toggleSchedule: async (id, enabled) => {
+    if (enabled) {
+      await api.resumeSchedule(id);
+    } else {
+      await api.pauseSchedule(id);
+    }
+    set((state) => ({
+      schedules: state.schedules.map((s) =>
+        s.id === id ? { ...s, enabled } : s
+      ),
+    }));
+  },
+
+  discoverJobs: async () => {
+    const discoveredJobs = await api.discoverLaunchdJobs();
+    set({ discoveredJobs });
+  },
+
+  importJob: async (label) => {
+    const schedule = await api.importLaunchdJob(label);
+    set((state) => ({ schedules: [...state.schedules, schedule] }));
+    return schedule;
+  },
+
+  selectSchedule: (id) => {
+    set({ selectedScheduleId: id, selectedScheduleRuns: [] });
+  },
+
+  fetchScheduleRuns: async (scheduleId, limit, offset) => {
+    const runs = await api.listScheduleRuns(scheduleId, limit, offset);
+    set({ selectedScheduleRuns: runs });
   },
 }));

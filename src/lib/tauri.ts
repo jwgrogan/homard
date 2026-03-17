@@ -8,6 +8,8 @@ import type {
   AgentInfo,
   CommandInfo,
   Run,
+  Schedule,
+  DiscoveredPlist,
 } from "./types";
 
 export async function runHealthCheck(): Promise<HealthStatus> {
@@ -88,4 +90,45 @@ export async function killSession(sessionId: string): Promise<void> {
 
 export async function listRuns(limit?: number, offset?: number): Promise<Run[]> {
   return invoke("list_runs", { limit, offset });
+}
+
+// Scheduler
+export async function createSchedule(schedule: Schedule): Promise<void> {
+  return invoke("create_schedule", { schedule });
+}
+
+export async function updateSchedule(schedule: Schedule): Promise<void> {
+  return invoke("update_schedule", { schedule });
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  return invoke("delete_schedule", { id });
+}
+
+export async function getSchedule(id: string): Promise<Schedule> {
+  return invoke("get_schedule", { id });
+}
+
+export async function listSchedules(): Promise<Schedule[]> {
+  return invoke("list_schedules");
+}
+
+export async function pauseSchedule(id: string): Promise<void> {
+  return invoke("pause_schedule", { id });
+}
+
+export async function resumeSchedule(id: string): Promise<void> {
+  return invoke("resume_schedule", { id });
+}
+
+export async function discoverLaunchdJobs(): Promise<DiscoveredPlist[]> {
+  return invoke("discover_launchd_jobs");
+}
+
+export async function importLaunchdJob(label: string): Promise<Schedule> {
+  return invoke("import_launchd_job_cmd", { label });
+}
+
+export async function listScheduleRuns(scheduleId: string, limit?: number, offset?: number): Promise<Run[]> {
+  return invoke("list_schedule_runs", { scheduleId, limit, offset });
 }

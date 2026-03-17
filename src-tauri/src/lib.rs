@@ -75,6 +75,17 @@ pub fn run() {
             commands::settings::remove_env_var,
             commands::settings::get_agents,
             commands::settings::get_commands,
+            // scheduler
+            commands::scheduler::create_schedule,
+            commands::scheduler::update_schedule,
+            commands::scheduler::delete_schedule,
+            commands::scheduler::get_schedule,
+            commands::scheduler::list_schedules,
+            commands::scheduler::pause_schedule,
+            commands::scheduler::resume_schedule,
+            commands::scheduler::discover_launchd_jobs,
+            commands::scheduler::import_launchd_job_cmd,
+            commands::scheduler::list_schedule_runs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
