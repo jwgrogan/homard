@@ -14,6 +14,7 @@ export function TelegramPanel() {
     useTelegramStore();
   const [tokenInput, setTokenInput] = useState("");
   const [verifying, setVerifying] = useState(false);
+  const [savingToken, setSavingToken] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [newChatId, setNewChatId] = useState("");
 
@@ -27,6 +28,8 @@ export function TelegramPanel() {
     setVerifyError(null);
     try {
       await verifyTelegramToken(tokenInput.trim());
+      setVerifying(false);
+      setSavingToken(true);
       await saveTelegramToken(tokenInput.trim());
       setTokenInput("");
       await fetchStatus();
@@ -34,6 +37,7 @@ export function TelegramPanel() {
       setVerifyError(String(e));
     } finally {
       setVerifying(false);
+      setSavingToken(false);
     }
   }
 
@@ -121,10 +125,10 @@ export function TelegramPanel() {
               />
               <button
                 onClick={handleVerifyAndSave}
-                disabled={verifying || !tokenInput.trim()}
+                disabled={verifying || savingToken || !tokenInput.trim()}
                 className="rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-3 py-1.5 text-xs text-white font-medium"
               >
-                {verifying ? "Verifying..." : "Verify & Save"}
+                {verifying ? "Verifying..." : savingToken ? "Saving..." : "Verify & Save"}
               </button>
             </div>
             {verifyError && (
