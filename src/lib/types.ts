@@ -29,6 +29,9 @@ export interface ClaudeSettings {
   permissions: PermissionsConfig;
   env: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
+  enabledPlugins?: Record<string, boolean>;
+  enabledMcpjsonServers?: string[];
+  [key: string]: unknown;
 }
 
 export interface PermissionsConfig {

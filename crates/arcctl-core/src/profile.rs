@@ -91,7 +91,24 @@ impl ProfileManager {
 
         profiles.sort_by(|a, b| a.name.cmp(&b.name));
 
+        self.detect_active(&mut profiles);
+
         Ok(profiles)
+    }
+
+    /// Determine which profile is active by comparing the live .credentials.json
+    /// against each profile's stored copy. If the contents match, that profile is active.
+    fn detect_active(&self, profiles: &mut Vec<Profile>) {
+        let current = fs::read_to_string(self.claude_dir.join(".credentials.json")).ok();
+        for profile in profiles.iter_mut() {
+            let stored = fs::read_to_string(
+                self.profiles_dir
+                    .join(&profile.name)
+                    .join(".credentials.json"),
+            )
+            .ok();
+            profile.is_active = current.is_some() && current == stored;
+        }
     }
 
     /// Copy profile files back to live locations

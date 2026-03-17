@@ -17,6 +17,10 @@ pub struct ClaudeSettings {
     pub env: HashMap<String, String>,
     #[serde(default, rename = "mcpServers")]
     pub mcp_servers: HashMap<String, McpServerConfig>,
+    #[serde(default, rename = "enabledPlugins")]
+    pub enabled_plugins: Option<HashMap<String, bool>>,
+    #[serde(default, rename = "enabledMcpjsonServers")]
+    pub enabled_mcpjson_servers: Option<Vec<String>>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }

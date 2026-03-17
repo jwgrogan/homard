@@ -4,6 +4,18 @@ import type { McpServerConfig } from "../../lib/types";
 
 type McpType = "http" | "stdio";
 
+function extractCloudServices(allowList: string[]): string[] {
+  const services = new Set<string>();
+  for (const pattern of allowList) {
+    const match = pattern.match(/^mcp__claude_ai_([^_]+(?:_[^_]+)*?)__/);
+    if (match) {
+      // Convert snake_case back to display name (e.g. Google_Calendar -> Google Calendar)
+      services.add(match[1].replace(/_/g, " "));
+    }
+  }
+  return Array.from(services).sort();
+}
+
 export default function McpServersPanel() {
   const { settings, addMcpServer, removeMcpServer } = useSettingsStore();
   const servers = settings?.mcpServers ?? {};
@@ -48,9 +60,14 @@ export default function McpServersPanel() {
   }
 
   const entries = Object.entries(servers);
+  const enabledPlugins = settings?.enabledPlugins ?? null;
+  const cloudServices = extractCloudServices(settings?.permissions?.allow ?? []);
 
   return (
-    <div>
+    <div className="space-y-8">
+      {/* Local MCP Servers */}
+      <div>
+        <h2 className="text-sm font-semibold text-zinc-300 mb-3">Local MCP Servers</h2>
       <div className="space-y-3 mb-4">
         {entries.length === 0 ? (
           <p className="text-sm text-zinc-500">No MCP servers configured.</p>
@@ -185,6 +202,54 @@ export default function McpServersPanel() {
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+      </div>
+
+      {/* Enabled Plugins */}
+      {enabledPlugins !== null && (
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-300 mb-1">Enabled Plugins</h2>
+          <p className="text-xs text-zinc-500 mb-3">Managed via Claude Code CLI</p>
+          {Object.keys(enabledPlugins).length === 0 ? (
+            <p className="text-sm text-zinc-500">No plugins configured.</p>
+          ) : (
+            <div className="space-y-2">
+              {Object.entries(enabledPlugins).map(([pluginName, enabled]) => (
+                <div
+                  key={pluginName}
+                  className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 flex items-center justify-between"
+                >
+                  <span className="text-sm text-zinc-200">{pluginName}</span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs ${
+                      enabled ? "bg-green-900 text-green-300" : "bg-zinc-700 text-zinc-400"
+                    }`}
+                  >
+                    {enabled ? "enabled" : "disabled"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Cloud-Connected Services */}
+      {cloudServices.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-300 mb-1">Cloud-Connected Services</h2>
+          <p className="text-xs text-zinc-500 mb-3">Connected via claude.ai</p>
+          <div className="flex flex-wrap gap-2">
+            {cloudServices.map((service) => (
+              <span
+                key={service}
+                className="rounded-full px-3 py-1 text-xs bg-indigo-900 text-indigo-300 border border-indigo-700"
+              >
+                {service}
+              </span>
+            ))}
           </div>
         </div>
       )}
