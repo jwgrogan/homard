@@ -22,6 +22,9 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { workspace = true }
 dirs = "6"
 arcctl-core = { path = "../crates/arcctl-core" }
+tokio-util = { version = "0.7", features = ["rt"] }
+teloxide = { workspace = true }
+tracing = { workspace = true }
 
 [features]
 default = ["custom-protocol"]

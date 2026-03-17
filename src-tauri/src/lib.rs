@@ -1,5 +1,6 @@
 mod commands;
 mod state;
+mod telegram_poller;
 mod tray;
 
 use arcctl_core::config::{ArcctlConfig, ArcctlDirs};
@@ -23,6 +24,8 @@ pub fn run() {
         config: Mutex::new(config),
         dirs,
         children: Mutex::new(HashMap::new()),
+        telegram_poll_handle: std::sync::Mutex::new(None),
+        telegram_cancel: std::sync::Mutex::new(None),
     };
 
     tauri::Builder::default()
@@ -86,6 +89,15 @@ pub fn run() {
             commands::scheduler::discover_launchd_jobs,
             commands::scheduler::import_launchd_job_cmd,
             commands::scheduler::list_schedule_runs,
+            // telegram
+            commands::telegram::save_telegram_token_cmd,
+            commands::telegram::verify_telegram_token,
+            commands::telegram::get_telegram_status,
+            commands::telegram::add_paired_chat_cmd,
+            commands::telegram::remove_paired_chat_cmd,
+            commands::telegram::generate_pairing_code_cmd,
+            commands::telegram::start_telegram_polling,
+            commands::telegram::stop_telegram_polling,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
