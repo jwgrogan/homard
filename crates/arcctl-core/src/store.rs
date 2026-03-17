@@ -1,1 +1,382 @@
-// TODO: implement
+use rusqlite::{Connection, OptionalExtension, params};
+use std::path::Path;
+use chrono::{DateTime, Utc};
+
+use crate::types::{Run, RunStatus, Trigger};
+use crate::error::Result;
+
+pub struct Store {
+    conn: Connection,
+}
+
+fn parse_trigger(s: &str) -> Trigger {
+    match s {
+        "cron" => Trigger::Cron,
+        "telegram" => Trigger::Telegram,
+        "email" => Trigger::Email,
+        _ => Trigger::Manual,
+    }
+}
+
+fn parse_status(s: &str) -> RunStatus {
+    match s {
+        "complete" => RunStatus::Complete,
+        "error" => RunStatus::Error,
+        "killed" => RunStatus::Killed,
+        _ => RunStatus::Running,
+    }
+}
+
+fn trigger_to_str(t: &Trigger) -> &'static str {
+    let json = serde_json::to_string(t).unwrap_or_default();
+    match json.trim_matches('"') {
+        "cron" => "cron",
+        "telegram" => "telegram",
+        "email" => "email",
+        _ => "manual",
+    }
+}
+
+fn status_to_str(s: &RunStatus) -> &'static str {
+    let json = serde_json::to_string(s).unwrap_or_default();
+    match json.trim_matches('"') {
+        "complete" => "complete",
+        "error" => "error",
+        "killed" => "killed",
+        _ => "running",
+    }
+}
+
+impl Store {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        let conn = Connection::open(path)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+        let mut store = Store { conn };
+        store.migrate()?;
+        Ok(store)
+    }
+
+    pub fn open_in_memory() -> Result<Self> {
+        let conn = Connection::open_in_memory()?;
+        let mut store = Store { conn };
+        store.migrate()?;
+        Ok(store)
+    }
+
+    pub fn migrate(&mut self) -> Result<()> {
+        self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS runs (
+                id TEXT PRIMARY KEY,
+                schedule_id TEXT,
+                agent TEXT,
+                profile TEXT,
+                directory TEXT,
+                trigger TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'running',
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                duration_ms INTEGER,
+                error_message TEXT,
+                delivery_status TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS approvals (
+                id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                draft_content TEXT NOT NULL,
+                recipient TEXT,
+                subject TEXT,
+                metadata TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                channel TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS snoozes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                contact_id TEXT NOT NULL,
+                contact_name TEXT,
+                reason TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                active INTEGER DEFAULT 1
+            );
+
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                profile TEXT,
+                directory TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS kv_store (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS email_threads (
+                thread_id TEXT PRIMARY KEY,
+                subject TEXT,
+                participants TEXT,
+                last_message_at TEXT,
+                auto_reply INTEGER DEFAULT 0,
+                metadata TEXT
+            );
+        ")?;
+        Ok(())
+    }
+
+    pub fn insert_run(&self, run: &Run) -> Result<()> {
+        let trigger_str = trigger_to_str(&run.trigger);
+        let status_str = status_to_str(&run.status);
+        let started_at = run.started_at.to_rfc3339();
+        let finished_at = run.finished_at.as_ref().map(|dt| dt.to_rfc3339());
+        let delivery_status = run.delivery_status.as_ref()
+            .map(|v| v.to_string());
+
+        self.conn.execute(
+            "INSERT INTO runs (id, schedule_id, agent, profile, directory, trigger, status, started_at, finished_at, duration_ms, error_message, delivery_status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                run.id,
+                run.schedule_id,
+                run.agent,
+                run.profile,
+                run.directory,
+                trigger_str,
+                status_str,
+                started_at,
+                finished_at,
+                run.duration_ms,
+                run.error_message,
+                delivery_status,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_run(&self, id: &str) -> Result<Option<Run>> {
+        let result = self.conn.query_row(
+            "SELECT id, schedule_id, agent, profile, directory, trigger, status, started_at, finished_at, duration_ms, error_message, delivery_status FROM runs WHERE id = ?1",
+            params![id],
+            |row| {
+                let id: String = row.get(0)?;
+                let schedule_id: Option<String> = row.get(1)?;
+                let agent: Option<String> = row.get(2)?;
+                let profile: Option<String> = row.get(3)?;
+                let directory: Option<String> = row.get(4)?;
+                let trigger_str: String = row.get(5)?;
+                let status_str: String = row.get(6)?;
+                let started_at_str: String = row.get(7)?;
+                let finished_at_str: Option<String> = row.get(8)?;
+                let duration_ms: Option<i64> = row.get(9)?;
+                let error_message: Option<String> = row.get(10)?;
+                let delivery_status_str: Option<String> = row.get(11)?;
+
+                Ok((id, schedule_id, agent, profile, directory, trigger_str, status_str,
+                    started_at_str, finished_at_str, duration_ms, error_message, delivery_status_str))
+            },
+        ).optional()?;
+
+        match result {
+            None => Ok(None),
+            Some((id, schedule_id, agent, profile, directory, trigger_str, status_str,
+                  started_at_str, finished_at_str, duration_ms, error_message, delivery_status_str)) => {
+                let started_at = started_at_str.parse::<DateTime<Utc>>()
+                    .unwrap_or_else(|_| Utc::now());
+                let finished_at = finished_at_str
+                    .and_then(|s| s.parse::<DateTime<Utc>>().ok());
+                let delivery_status = delivery_status_str
+                    .and_then(|s| serde_json::from_str(&s).ok());
+
+                Ok(Some(Run {
+                    id,
+                    schedule_id,
+                    agent,
+                    profile,
+                    directory,
+                    trigger: parse_trigger(&trigger_str),
+                    status: parse_status(&status_str),
+                    started_at,
+                    finished_at,
+                    duration_ms,
+                    error_message,
+                    delivery_status,
+                }))
+            }
+        }
+    }
+
+    pub fn complete_run(&self, id: &str, status: RunStatus, error: Option<String>) -> Result<()> {
+        let status_str = status_to_str(&status);
+        let finished_at = Utc::now().to_rfc3339();
+
+        // Get started_at to calculate duration
+        let started_at_str: Option<String> = self.conn.query_row(
+            "SELECT started_at FROM runs WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        ).optional()?;
+
+        let duration_ms: Option<i64> = started_at_str.and_then(|s| {
+            s.parse::<DateTime<Utc>>().ok().map(|started| {
+                let now = Utc::now();
+                (now - started).num_milliseconds()
+            })
+        });
+
+        self.conn.execute(
+            "UPDATE runs SET status = ?1, finished_at = ?2, duration_ms = ?3, error_message = ?4 WHERE id = ?5",
+            params![status_str, finished_at, duration_ms, error, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_runs(&self, limit: i64, offset: i64) -> Result<Vec<Run>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, schedule_id, agent, profile, directory, trigger, status, started_at, finished_at, duration_ms, error_message, delivery_status
+             FROM runs
+             ORDER BY started_at DESC
+             LIMIT ?1 OFFSET ?2",
+        )?;
+
+        let rows = stmt.query_map(params![limit, offset], |row| {
+            let id: String = row.get(0)?;
+            let schedule_id: Option<String> = row.get(1)?;
+            let agent: Option<String> = row.get(2)?;
+            let profile: Option<String> = row.get(3)?;
+            let directory: Option<String> = row.get(4)?;
+            let trigger_str: String = row.get(5)?;
+            let status_str: String = row.get(6)?;
+            let started_at_str: String = row.get(7)?;
+            let finished_at_str: Option<String> = row.get(8)?;
+            let duration_ms: Option<i64> = row.get(9)?;
+            let error_message: Option<String> = row.get(10)?;
+            let delivery_status_str: Option<String> = row.get(11)?;
+
+            Ok((id, schedule_id, agent, profile, directory, trigger_str, status_str,
+                started_at_str, finished_at_str, duration_ms, error_message, delivery_status_str))
+        })?;
+
+        let mut runs = Vec::new();
+        for row in rows {
+            let (id, schedule_id, agent, profile, directory, trigger_str, status_str,
+                 started_at_str, finished_at_str, duration_ms, error_message, delivery_status_str) = row?;
+
+            let started_at = started_at_str.parse::<DateTime<Utc>>()
+                .unwrap_or_else(|_| Utc::now());
+            let finished_at = finished_at_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+            let delivery_status = delivery_status_str.and_then(|s| serde_json::from_str(&s).ok());
+
+            runs.push(Run {
+                id,
+                schedule_id,
+                agent,
+                profile,
+                directory,
+                trigger: parse_trigger(&trigger_str),
+                status: parse_status(&status_str),
+                started_at,
+                finished_at,
+                duration_ms,
+                error_message,
+                delivery_status,
+            });
+        }
+        Ok(runs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn make_run(id: &str) -> Run {
+        Run {
+            id: id.to_string(),
+            schedule_id: None,
+            agent: Some("test-agent".to_string()),
+            profile: Some("default".to_string()),
+            directory: Some("/tmp".to_string()),
+            trigger: Trigger::Manual,
+            status: RunStatus::Running,
+            started_at: Utc::now(),
+            finished_at: None,
+            duration_ms: None,
+            error_message: None,
+            delivery_status: None,
+        }
+    }
+
+    #[test]
+    fn test_creates_tables() {
+        let store = Store::open_in_memory().unwrap();
+        // Query sqlite_master to verify runs table exists
+        let count: i64 = store.conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='runs'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_insert_and_get_run() {
+        let store = Store::open_in_memory().unwrap();
+        let run = make_run("run-001");
+        store.insert_run(&run).unwrap();
+
+        let fetched = store.get_run("run-001").unwrap().expect("run should exist");
+        assert_eq!(fetched.id, "run-001");
+        assert_eq!(fetched.agent, Some("test-agent".to_string()));
+        assert_eq!(fetched.profile, Some("default".to_string()));
+        assert_eq!(fetched.trigger, Trigger::Manual);
+        assert_eq!(fetched.status, RunStatus::Running);
+        assert!(fetched.finished_at.is_none());
+        assert!(fetched.duration_ms.is_none());
+    }
+
+    #[test]
+    fn test_update_run_status() {
+        let store = Store::open_in_memory().unwrap();
+        let run = make_run("run-002");
+        store.insert_run(&run).unwrap();
+
+        // Verify initially running
+        let before = store.get_run("run-002").unwrap().unwrap();
+        assert_eq!(before.status, RunStatus::Running);
+        assert!(before.finished_at.is_none());
+
+        store.complete_run("run-002", RunStatus::Complete, None).unwrap();
+
+        let after = store.get_run("run-002").unwrap().unwrap();
+        assert_eq!(after.status, RunStatus::Complete);
+        assert!(after.finished_at.is_some());
+        assert!(after.duration_ms.is_some());
+        assert!(after.duration_ms.unwrap() >= 0);
+    }
+
+    #[test]
+    fn test_list_runs() {
+        let store = Store::open_in_memory().unwrap();
+        for i in 0..5 {
+            let run = make_run(&format!("run-{:03}", i));
+            store.insert_run(&run).unwrap();
+        }
+
+        let all = store.list_runs(10, 0).unwrap();
+        assert_eq!(all.len(), 5);
+
+        let limited = store.list_runs(3, 0).unwrap();
+        assert_eq!(limited.len(), 3);
+
+        let offset = store.list_runs(10, 3).unwrap();
+        assert_eq!(offset.len(), 2);
+    }
+}
