@@ -237,6 +237,61 @@ impl Store {
         Ok(())
     }
 
+    pub fn list_runs_by_schedule(&self, schedule_id: &str, limit: u32, offset: u32) -> Result<Vec<Run>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, schedule_id, agent, profile, directory, trigger, status, started_at, finished_at, duration_ms, error_message, delivery_status
+             FROM runs
+             WHERE schedule_id = ?1
+             ORDER BY started_at DESC
+             LIMIT ?2 OFFSET ?3",
+        )?;
+
+        let rows = stmt.query_map(params![schedule_id, limit, offset], |row| {
+            let id: String = row.get(0)?;
+            let schedule_id: Option<String> = row.get(1)?;
+            let agent: Option<String> = row.get(2)?;
+            let profile: Option<String> = row.get(3)?;
+            let directory: Option<String> = row.get(4)?;
+            let trigger_str: String = row.get(5)?;
+            let status_str: String = row.get(6)?;
+            let started_at_str: String = row.get(7)?;
+            let finished_at_str: Option<String> = row.get(8)?;
+            let duration_ms: Option<i64> = row.get(9)?;
+            let error_message: Option<String> = row.get(10)?;
+            let delivery_status_str: Option<String> = row.get(11)?;
+
+            Ok((id, schedule_id, agent, profile, directory, trigger_str, status_str,
+                started_at_str, finished_at_str, duration_ms, error_message, delivery_status_str))
+        })?;
+
+        let mut runs = Vec::new();
+        for row in rows {
+            let (id, schedule_id, agent, profile, directory, trigger_str, status_str,
+                 started_at_str, finished_at_str, duration_ms, error_message, delivery_status_str) = row?;
+
+            let started_at = started_at_str.parse::<DateTime<Utc>>()
+                .unwrap_or_else(|_| Utc::now());
+            let finished_at = finished_at_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+            let delivery_status = delivery_status_str.and_then(|s| serde_json::from_str(&s).ok());
+
+            runs.push(Run {
+                id,
+                schedule_id,
+                agent,
+                profile,
+                directory,
+                trigger: parse_trigger(&trigger_str),
+                status: parse_status(&status_str),
+                started_at,
+                finished_at,
+                duration_ms,
+                error_message,
+                delivery_status,
+            });
+        }
+        Ok(runs)
+    }
+
     pub fn list_runs(&self, limit: i64, offset: i64) -> Result<Vec<Run>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, schedule_id, agent, profile, directory, trigger, status, started_at, finished_at, duration_ms, error_message, delivery_status

@@ -1,10 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
+use serde::{Deserialize, Serialize};
 
 use crate::types::Schedule;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredPlist {
     pub label: String,
     pub path: PathBuf,

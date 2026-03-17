@@ -30,8 +30,10 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::RunJob { job_id }) => {
-            tracing::info!("Running job: {}", job_id);
-            // TODO: implement
+            let dirs = arcctl_core::config::ArcctlDirs::default_path();
+            dirs.ensure_all().map_err(|e| anyhow::anyhow!(e))?;
+            let mut executor = arcctl_core::executor::JobExecutor::new(dirs, &job_id)?;
+            executor.execute().await?;
         }
         Some(Commands::Status) => {
             tracing::info!("Status check");
