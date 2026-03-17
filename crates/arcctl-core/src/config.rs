@@ -224,7 +224,7 @@ pub fn save_telegram_token(dirs: &ArcctlDirs, token: &str) -> Result<()> {
     crate::keychain::store_secret(TELEGRAM_KEYCHAIN_SERVICE, TELEGRAM_KEYCHAIN_ACCOUNT, token)?;
     let mut cfg = ArcctlConfig::load_or_default(&dirs.config_path());
     cfg.telegram.enabled = true;
-    cfg.telegram.token_keychain_ref = Some("arcctl-telegram-bot-token".to_string());
+    cfg.telegram.token_keychain_ref = Some(format!("{}/{}", TELEGRAM_KEYCHAIN_SERVICE, TELEGRAM_KEYCHAIN_ACCOUNT));
     cfg.save(&dirs.config_path())?;
     Ok(())
 }
@@ -366,7 +366,7 @@ mod tests {
         assert!(cfg.telegram.enabled);
         assert_eq!(
             cfg.telegram.token_keychain_ref,
-            Some("arcctl-telegram-bot-token".to_string())
+            Some("arcctl-telegram/bot-token".to_string())
         );
 
         let token = keychain::read_secret("arcctl-telegram", "bot-token").unwrap();
@@ -407,6 +407,8 @@ mod tests {
         assert!(code.chars().all(|c| c.is_alphanumeric()));
 
         assert!(validate_pairing_code(&dirs, &code).unwrap());
+        // Code should be consumed after first use — calling again returns false
+        assert!(!validate_pairing_code(&dirs, &code).unwrap());
         assert!(!validate_pairing_code(&dirs, "WRONGCODE").unwrap());
     }
 
