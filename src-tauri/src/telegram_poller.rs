@@ -36,11 +36,18 @@ pub async fn run_poller(
     app_handle: tauri::AppHandle,
     cancel: CancellationToken,
 ) -> Result<(), String> {
-    // Get token from config — macOS only (keychain)
+    // Non-macOS platforms don't have keychain support; bail out early.
+    #[cfg(not(target_os = "macos"))]
+    {
+        warn!("Telegram poller: only supported on macOS");
+        return Ok(());
+    }
+
     #[cfg(target_os = "macos")]
-    let token = {
+    {
+        // Get token from config — macOS only (keychain)
         use arcctl_core::config::get_telegram_token;
-        match get_telegram_token(&dirs) {
+        let token = match get_telegram_token(&dirs) {
             Ok(Some(t)) => t,
             Ok(None) => {
                 warn!("Telegram poller: no token configured, stopping");
@@ -50,55 +57,51 @@ pub async fn run_poller(
                 error!("Telegram poller: failed to read token: {}", e);
                 return Err(e.to_string());
             }
-        }
-    };
-    #[cfg(not(target_os = "macos"))]
-    {
-        warn!("Telegram poller: only supported on macOS");
-        return Ok(());
-    }
-
-    let client = TelegramClient::new(&token);
-    let bot = teloxide::Bot::new(&token);
-    info!("Telegram poller started");
-
-    let mut offset: i32 = 0;
-
-    loop {
-        if cancel.is_cancelled() {
-            info!("Telegram poller: cancelled");
-            break;
-        }
-
-        // Long-poll for updates (10s timeout)
-        let updates = match bot.get_updates().offset(offset).timeout(10).await {
-            Ok(updates) => updates,
-            Err(e) => {
-                warn!("Telegram getUpdates error: {}", e);
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                continue;
-            }
         };
 
-        for update in &updates {
-            // Advance offset past this update so it won't be returned again
-            offset = update.id.as_offset();
+        let client = TelegramClient::new(&token);
+        let bot = teloxide::Bot::new(&token);
+        info!("Telegram poller started");
 
-            // Extract chat_id and text from message updates only
-            let (chat_id, text) = match &update.kind {
-                teloxide::types::UpdateKind::Message(msg) => {
-                    let chat_id = msg.chat.id.0;
-                    let text = msg.text().unwrap_or("").to_string();
-                    (chat_id, text)
+        let mut offset: i32 = 0;
+
+        loop {
+            if cancel.is_cancelled() {
+                info!("Telegram poller: cancelled");
+                break;
+            }
+
+            // Long-poll for updates (10s timeout)
+            let updates = match bot.get_updates().offset(offset).timeout(10).await {
+                Ok(updates) => updates,
+                Err(e) => {
+                    warn!("Telegram getUpdates error: {}", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    continue;
                 }
-                _ => continue,
             };
 
+            // Load config once per polling round (not per message)
             let config = ArcctlConfig::load_or_default(&dirs.config_path());
-            let chat_id_str = chat_id.to_string();
-            let is_paired = config.telegram.paired_chat_ids.contains(&chat_id_str);
 
-            match parse_command(&text) {
+            for update in &updates {
+                // Advance offset past this update so it won't be returned again
+                offset = update.id.as_offset();
+
+                // Extract chat_id and text from message updates only
+                let (chat_id, text) = match &update.kind {
+                    teloxide::types::UpdateKind::Message(msg) => {
+                        let chat_id = msg.chat.id.0;
+                        let text = msg.text().unwrap_or("").to_string();
+                        (chat_id, text)
+                    }
+                    _ => continue,
+                };
+
+                let chat_id_str = chat_id.to_string();
+                let is_paired = config.telegram.paired_chat_ids.contains(&chat_id_str);
+
+                match parse_command(&text) {
                 Some(Command::Pair(code)) => {
                     handle_pair(&dirs, &client, &app_handle, chat_id, &code).await;
                 }
@@ -133,10 +136,11 @@ pub async fn run_poller(
                 }
             }
         }
-    }
+    } // end loop
 
-    info!("Telegram poller stopped");
-    Ok(())
+        info!("Telegram poller stopped");
+        Ok(())
+    } // end #[cfg(target_os = "macos")]
 }
 
 async fn handle_pair(
