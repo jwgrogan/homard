@@ -13,6 +13,7 @@ pub mod schedule;
 pub mod settings;
 pub mod store;
 pub mod telegram;
+pub mod terminal;
 pub mod types;
 
 pub use error::{ArcctlError, Result};

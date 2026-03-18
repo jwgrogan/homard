@@ -31,6 +31,9 @@ pub enum ArcctlError {
 
     #[error("Telegram error: {0}")]
     Telegram(String),
+
+    #[error("Terminal error: {0}")]
+    Terminal(String),
 }
 
 pub type Result<T> = std::result::Result<T, ArcctlError>;
