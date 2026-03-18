@@ -12,6 +12,7 @@ import type {
   Schedule,
   DiscoveredPlist,
   TelegramStatus,
+  CredentialHealth,
 } from "./types";
 
 export async function runHealthCheck(): Promise<HealthStatus> {
@@ -79,6 +80,10 @@ export async function switchProfile(name: string): Promise<void> {
 
 export async function importProfile(name: string): Promise<Profile> {
   return invoke("import_profile", { name });
+}
+
+export async function checkAllProfileHealth(): Promise<[string, CredentialHealth][]> {
+  return invoke("check_all_profile_health");
 }
 
 // Sessions

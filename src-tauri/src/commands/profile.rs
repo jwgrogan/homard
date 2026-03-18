@@ -1,5 +1,5 @@
 use arcctl_core::profile::ProfileManager;
-use arcctl_core::types::Profile;
+use arcctl_core::types::{CredentialHealth, Profile};
 use tauri::State;
 
 use crate::state::AppState;
@@ -56,4 +56,27 @@ pub fn import_profile(
         .into_iter()
         .find(|p| p.name == name)
         .ok_or_else(|| format!("Profile '{}' not found after import", name))
+}
+
+#[tauri::command]
+pub fn check_profile_health(
+    state: State<'_, AppState>,
+    name: String,
+) -> CredentialHealth {
+    let mgr = make_manager(&state);
+    mgr.check_health(&name)
+}
+
+#[tauri::command]
+pub fn check_all_profile_health(
+    state: State<'_, AppState>,
+) -> Vec<(String, CredentialHealth)> {
+    let mgr = make_manager(&state);
+    match mgr.list() {
+        Ok(profiles) => profiles
+            .iter()
+            .map(|p| (p.name.clone(), mgr.check_health(&p.name)))
+            .collect(),
+        Err(_) => Vec::new(),
+    }
 }

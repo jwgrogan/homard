@@ -1,20 +1,47 @@
 import { useEffect, useRef, useState } from "react";
 import { useProfilesStore } from "../lib/store";
-import type { Profile } from "../lib/types";
+import { checkAllProfileHealth } from "../lib/tauri";
+import type { CredentialHealth, Profile } from "../lib/types";
 
 const PROVIDER_LABELS: Record<string, string> = {
   claude: "Claude Code",
   gemini: "Gemini CLI",
 };
 
+function healthDotColor(h: CredentialHealth | undefined): string {
+  switch (h) {
+    case "valid":
+      return "bg-green-500";
+    case "expiring":
+      return "bg-yellow-500";
+    case "expired":
+      return "bg-red-500";
+    default:
+      return "bg-zinc-600";
+  }
+}
+
 export default function ProfileSwitcher() {
   const { profiles, fetchProfiles, switchProfile, importProfile } = useProfilesStore();
   const [open, setOpen] = useState(false);
+  const [health, setHealth] = useState<Record<string, CredentialHealth>>({});
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchProfiles();
   }, []);
+
+  // Fetch health when popover opens
+  useEffect(() => {
+    if (!open) return;
+    checkAllProfileHealth().then((results) => {
+      const map: Record<string, CredentialHealth> = {};
+      for (const [name, status] of results) {
+        map[name] = status;
+      }
+      setHealth(map);
+    });
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -58,25 +85,35 @@ export default function ProfileSwitcher() {
               <div className="px-3 py-1.5 text-xs font-semibold text-zinc-500 uppercase tracking-wider">
                 {PROVIDER_LABELS[provider] ?? provider}
               </div>
-              {providerProfiles.map((profile) => (
-                <button
-                  key={profile.name}
-                  onClick={() => handleSwitch(profile.name)}
-                  className="w-full text-left px-3 py-2 hover:bg-zinc-700 flex items-center gap-2"
-                >
-                  <span
-                    className={`w-2 h-2 rounded-full shrink-0 ${
-                      profile.is_active ? "bg-green-500" : "bg-zinc-600"
-                    }`}
-                  />
-                  <div className="min-w-0">
-                    <div className="text-sm text-zinc-100 truncate">{profile.name}</div>
-                    {profile.email && (
-                      <div className="text-xs text-zinc-400 truncate">{profile.email}</div>
-                    )}
-                  </div>
-                </button>
-              ))}
+              {providerProfiles.map((profile) => {
+                const profileHealth = health[profile.name];
+                const isExpired = profileHealth === "expired";
+                return (
+                  <button
+                    key={profile.name}
+                    onClick={() => handleSwitch(profile.name)}
+                    className="w-full text-left px-3 py-2 hover:bg-zinc-700 flex items-center gap-2"
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${
+                        profile.is_active
+                          ? healthDotColor(profileHealth)
+                          : isExpired
+                          ? "bg-red-500"
+                          : "bg-zinc-600"
+                      }`}
+                    />
+                    <div className="min-w-0">
+                      <div className="text-sm text-zinc-100 truncate">{profile.name}</div>
+                      {isExpired ? (
+                        <div className="text-xs text-red-400 truncate">Re-auth needed</div>
+                      ) : profile.email ? (
+                        <div className="text-xs text-zinc-400 truncate">{profile.email}</div>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           ))}
           {profiles.length === 0 && (

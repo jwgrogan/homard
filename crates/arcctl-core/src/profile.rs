@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::error::{ArcctlError, Result};
 use crate::provider::ProviderId;
-use crate::types::Profile;
+use crate::types::{CredentialHealth, Profile};
 
 const CLAUDE_DIR_FILES: &[&str] = &[".credentials.json", "statsig", "statsig_metadata"];
 const HOME_FILE: &str = ".claude.json";
@@ -119,6 +119,52 @@ impl ProfileManager {
             )
             .ok();
             profile.is_active = current.is_some() && current == stored;
+        }
+    }
+
+    /// Check if a profile's credentials are still valid.
+    /// For Claude: reads .credentials.json and checks expiresAt field.
+    /// Returns Unknown for non-Claude profiles (Gemini health check TBD).
+    pub fn check_health(&self, name: &str) -> CredentialHealth {
+        let profile_dir = self.profiles_dir.join(name);
+
+        // Read provider
+        let provider = std::fs::read_to_string(profile_dir.join("provider.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<ProviderId>(&s).ok())
+            .unwrap_or(ProviderId::Claude);
+
+        match provider {
+            ProviderId::Claude => {
+                let creds_path = profile_dir.join(".credentials.json");
+                match std::fs::read_to_string(&creds_path) {
+                    Ok(contents) => {
+                        match serde_json::from_str::<serde_json::Value>(&contents) {
+                            Ok(v) => {
+                                // Check expiresAt field
+                                if let Some(expires_at) = v.get("expiresAt").and_then(|e| e.as_str()) {
+                                    if let Ok(expires) = chrono::DateTime::parse_from_rfc3339(expires_at) {
+                                        let now = chrono::Utc::now();
+                                        let until_expiry = expires.signed_duration_since(now);
+                                        if until_expiry.num_seconds() < 0 {
+                                            return CredentialHealth::Expired;
+                                        } else if until_expiry.num_hours() < 24 {
+                                            return CredentialHealth::Expiring;
+                                        } else {
+                                            return CredentialHealth::Valid;
+                                        }
+                                    }
+                                }
+                                // Has credentials but no expiresAt — assume valid
+                                CredentialHealth::Valid
+                            }
+                            Err(_) => CredentialHealth::Unknown,
+                        }
+                    }
+                    Err(_) => CredentialHealth::Expired, // No credentials file
+                }
+            }
+            ProviderId::Gemini => CredentialHealth::Unknown, // Gemini health check TBD
         }
     }
 

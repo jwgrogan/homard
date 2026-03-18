@@ -8,6 +8,8 @@ export interface HealthStatus {
   checked_at: string;
 }
 
+export type CredentialHealth = "valid" | "expiring" | "expired" | "unknown";
+
 export interface Profile {
   name: string;
   provider: "claude" | "gemini";

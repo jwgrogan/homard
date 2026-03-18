@@ -5,6 +5,15 @@ use crate::provider::ProviderId;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+pub enum CredentialHealth {
+    Valid,
+    Expiring,
+    Expired,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum RunStatus {
     Running,
     Complete,
