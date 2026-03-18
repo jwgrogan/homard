@@ -15,6 +15,20 @@ arcctl is not a terminal emulator. Users interact with CLIs in real terminal win
 
 **Key principle:** Each CLI works exactly as its developers intended. arcctl adds the layer above.
 
+### Migration from Current Architecture
+
+The existing codebase has `Run` (types.rs) and `ProcessRegistry` (process.rs) for headless CLI process management, plus a `runs` table and `chat_sessions` table in SQLite.
+
+**Migration path:**
+- `Run` is replaced by `Session`. The `runs` table is migrated to a `sessions` table via SQLite `ALTER TABLE` + data migration on first launch of the new version.
+- `ProcessRegistry` is replaced by `SessionMonitor`. The registry tracked in-memory PIDs of child processes arcctl owned — the new model tracks PIDs of terminal windows arcctl launched but does not own.
+- `chat_sessions` table is dropped (it was used for headless streaming, which is no longer the interaction model).
+- Existing `Run` history is preserved in the migrated `sessions` table with `provider: "claude"` backfilled and `cli_session_id: null` (we didn't capture it before).
+
+### Scope Boundaries
+
+- **Phase 1 only monitors sessions spawned by arcctl.** Discovery of externally-started sessions (user typing `claude` directly in a terminal) is out of scope. It could be added later by scanning CLI session directories for untracked session files.
+
 ---
 
 ## Phase 1 — Foundation
@@ -49,6 +63,25 @@ Provider {
 ```
 
 Provider definitions are hardcoded initially (Claude, Gemini). Adding a new provider means adding a new variant and its session file parser.
+
+**Per-provider credential strategy:**
+
+Credential management is provider-specific. The `ProfileManager` uses a trait-based approach:
+
+```
+trait CredentialManager {
+  fn import(&self, profile_dir: &Path) -> Result<()>;   // copy live creds to profile dir
+  fn restore(&self, profile_dir: &Path) -> Result<()>;  // restore profile creds to live locations
+  fn detect_active(&self, profile_dir: &Path) -> Result<bool>;  // is this profile active?
+  fn check_health(&self, profile_dir: &Path) -> Result<HealthStatus>;  // are creds valid?
+}
+```
+
+**Claude:** Copies `.credentials.json`, `statsig`, `statsig_metadata`, `home_.claude.json` from `~/.claude/`. Writes credentials to macOS Keychain (`security` CLI, service `"Claude Code-credentials"`). Health check: verify `.credentials.json` exists and contains a non-expired `accessToken` (check `expiresAt` field).
+
+**Gemini:** Credentials managed via `gcloud` auth or Gemini's own auth. Credential files TBD — need to investigate `~/.gemini/` structure. Health check: run `gemini --version` or check for valid auth token in Gemini's config. Import/restore may involve `gcloud auth` commands rather than file copying.
+
+This is a known gap for Gemini — Phase 1 implementation should investigate and document the actual credential storage before building the Gemini credential manager.
 
 ### 1.2 Project-Directory Defaults
 
@@ -115,9 +148,22 @@ On app launch and every 5 minutes, validate credentials per profile:
 4. arcctl records the session in SQLite
 5. Session appears in the session list immediately
 
+**Terminal launch mechanism:**
+- **Terminal.app:** AppleScript via `osascript` — `tell application "Terminal" to do script "cd <dir> && <cmd>"`
+- **iTerm:** AppleScript — `tell application "iTerm" to create window with default profile command "cd <dir> && <cmd>"`
+- **Warp:** `open -a Warp <dir>` then run command (Warp supports URL schemes and CLI launch)
+- **Ghostty/Kitty:** Direct CLI — `ghostty -e "cd <dir> && <cmd>"` / `kitty sh -c "cd <dir> && <cmd>"`
+- **Fallback:** If preferred terminal not found, fall back to Terminal.app
+- **Setting:** `~/.arcctl/config.json` → `"terminal": "iterm"` (auto-detected on first launch, user can change in settings)
+
+**Session status detection:**
+- Poll `terminal_pid` liveness every 5 seconds via `kill(pid, 0)` (signal 0 checks existence without sending a signal)
+- If PID is gone: mark session as `Stopped`, record `ended_at`
+- If `terminal_pid` is `None` (failed to capture): check if the CLI's session file has stopped updating for >60 seconds as a secondary signal
+
 **Capturing CLI session ID:**
 - **Claude:** Pass `--session-id <uuid>` when spawning — arcctl generates the ID, always knows it
-- **Gemini:** Watch `~/.gemini/tmp/*/chats/` for new files after spawn, match by timing. Session ID is in the filename (`session-<timestamp>-<id>.json`).
+- **Gemini:** Start a file watcher (`notify` crate) on `~/.gemini/tmp/*/chats/` *before* spawning the terminal. The first new `session-*.json` file that appears after spawn is matched to the session. Session ID is extracted from the filename (`session-<timestamp>-<id>.json`). If multiple files appear simultaneously (unlikely but possible), match by closest timestamp to spawn time. Fallback: if no session file is detected within 30 seconds, the session is tracked without a `cli_session_id` (resume will be unavailable for that session).
 
 **Session data model (SQLite):**
 
@@ -129,7 +175,7 @@ Session {
   provider: String,            // "claude" | "gemini"
   directory: String,
   terminal_pid: u32?,
-  status: Running | Stopped | Error,
+  status: Running | Stopped | Error | Killed,
   started_at: DateTime,
   ended_at: DateTime?,
   parent_session_id: UUID?,    // for resumed/forked sessions
@@ -171,7 +217,7 @@ arcctl maintains a single source of truth for local MCP servers, synced to each 
 **Sync behavior:**
 - Sync on change (when user adds/removes/edits in arcctl) and on app launch (reconcile)
 - arcctl is the authority for local MCPs
-- If external drift detected: prompt "MCP config for [CLI] was modified externally. Adopt changes or overwrite?"
+- If external drift detected: prompt "MCP config for [CLI] was modified externally. Adopt changes or overwrite?" — "Adopt" imports external changes into arcctl's config, then syncs outward to all providers. "Overwrite" pushes arcctl's config to the CLI. Unknown keys in provider configs are preserved during sync (only arcctl-managed server entries are touched).
 
 **MCP settings panel:**
 1. **Local MCP Servers** (managed by arcctl) — add/edit/remove, shows sync status per provider
@@ -185,6 +231,7 @@ arcctl maintains a single source of truth for local MCP servers, synced to each 
 - Reference icon file from `src-tauri/icons/`
 
 **Bypass permissions:**
+- Claude Code CLI reads `"defaultMode"` at the top level of `settings.json`, not `permissions.bypassPermissions`. The current implementation writes to the wrong location.
 - Remove `bypass_permissions: bool` from `PermissionsConfig`
 - Add `default_mode: Option<String>` to top-level `ClaudeSettings`, serialized as `"defaultMode"`
 - `set_bypass_permissions(true)` → `set_default_mode(Some("bypassPermissions".into()))`
@@ -243,9 +290,13 @@ Session: "arcctl" (Claude, ~/GitHub/arcctl)
 - `status` field gives completion state
 - Tree is flatter (tool calls within messages) but named agents (subagents) are still visible
 
-### 2.3 Graceful Degradation
+### 2.3 Parse Error Handling & Graceful Degradation
 
-If a provider's session file format is unreadable, changes, or is unavailable:
+**JSONL (Claude):** Read only complete lines (lines ending with `\n`). Ignore incomplete trailing data — the CLI will finish writing the line. If a complete line fails to parse as JSON, skip it and log a warning.
+
+**JSON (Gemini):** The session file is a single JSON document that gets rewritten as the conversation progresses. If parse fails (partial write in progress), retry after 500ms, up to 3 attempts. On persistent failure, fall back to "Session running" status.
+
+**General degradation:** If a provider's session file format is unreadable, changes, or is unavailable:
 - Tree view shows "Session running" with provider icon and status — no agent breakdown
 - No errors, no crashes
 - Provider parser can be updated independently without affecting other providers
