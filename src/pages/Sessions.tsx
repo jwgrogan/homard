@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSessionsStore } from "../lib/store";
 import type { Run, Session } from "../lib/types";
+import { listSessionsFiltered } from "../lib/tauri";
 import NewSessionModal from "../components/NewSessionModal";
 import SessionDetail from "../components/SessionDetail";
 
@@ -281,6 +282,11 @@ export default function Sessions() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
 
+  // Filter state
+  const [filterProvider, setFilterProvider] = useState<string | undefined>();
+  const [filterDir, setFilterDir] = useState<string>("");
+  const [filteredSessions, setFilteredSessions] = useState<Session[]>([]);
+
   // Poll live sessions every 5 seconds
   useEffect(() => {
     fetchLiveSessions();
@@ -293,8 +299,15 @@ export default function Sessions() {
     fetchRuns(PAGE_SIZE, runsOffset);
   }, [runsOffset]);
 
+  // Fetch filtered sessions when filters change
+  useEffect(() => {
+    const dir = filterDir.trim() === "" ? undefined : filterDir.trim();
+    listSessionsFiltered(dir, filterProvider, 50, 0)
+      .then((sessions) => setFilteredSessions(sessions))
+      .catch(console.error);
+  }, [filterProvider, filterDir]);
+
   const runningSessions = liveSessions.filter((s) => s.status === "running");
-  const historySessions = liveSessions.filter((s) => s.status !== "running");
 
   return (
     <>
@@ -342,19 +355,61 @@ export default function Sessions() {
           />
         )}
 
-        {/* Session History (from sessions table, non-running) */}
-        {historySessions.length > 0 && (
-          <section>
-            <h2 className="text-base font-semibold text-zinc-200 mb-3">
-              Recent Sessions
+        {/* Session History (from sessions table, with filters) */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-semibold text-zinc-200">
+              Session History
             </h2>
-            <div className="flex flex-col gap-2">
-              {historySessions.map((session) => (
-                <HistorySessionCard key={session.id} session={session} onClick={() => setSelectedSession(session)} />
+          </div>
+
+          {/* Filter bar */}
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            {/* Provider toggle buttons */}
+            <div className="flex items-center gap-1 bg-zinc-800 rounded-lg p-1">
+              {[
+                { label: "All", value: undefined },
+                { label: "Claude", value: "claude" },
+                { label: "Gemini", value: "gemini" },
+              ].map(({ label, value }) => (
+                <button
+                  key={label}
+                  onClick={() => setFilterProvider(value)}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                    filterProvider === value
+                      ? "bg-zinc-600 text-zinc-100"
+                      : "text-zinc-400 hover:text-zinc-200"
+                  }`}
+                >
+                  {label}
+                </button>
               ))}
             </div>
-          </section>
-        )}
+
+            {/* Directory filter input */}
+            <input
+              type="text"
+              value={filterDir}
+              onChange={(e) => setFilterDir(e.target.value)}
+              placeholder="Filter by directory…"
+              className="flex-1 min-w-[180px] max-w-[320px] px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-500"
+            />
+          </div>
+
+          {filteredSessions.length === 0 ? (
+            <p className="text-zinc-500 text-sm">No sessions found</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {filteredSessions.map((session) => (
+                <HistorySessionCard
+                  key={session.id}
+                  session={session}
+                  onClick={() => setSelectedSession(session)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
 
         {/* Run History (from runs table) */}
         <section>

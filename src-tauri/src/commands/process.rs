@@ -279,6 +279,23 @@ pub fn get_session_tree(
 }
 
 #[tauri::command]
+pub fn list_sessions_filtered(
+    state: State<'_, AppState>,
+    directory: Option<String>,
+    provider: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<Session>, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.list_sessions_filtered(
+        directory.as_deref(),
+        provider.as_deref(),
+        limit.unwrap_or(50),
+        offset.unwrap_or(0),
+    ).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn list_runs(
     state: State<'_, AppState>,
     limit: Option<u32>,

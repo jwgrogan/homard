@@ -579,6 +579,87 @@ impl Store {
         Ok(sessions)
     }
 
+    pub fn list_sessions_filtered(
+        &self,
+        directory: Option<&str>,
+        provider: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Session>> {
+        let mut sql = String::from(
+            "SELECT id, cli_session_id, profile_name, provider, directory, terminal_pid, trigger, status, started_at, ended_at, duration_ms, error_message, agent, parent_session_id, forked_from FROM sessions WHERE 1=1"
+        );
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(dir) = directory {
+            sql.push_str(" AND directory = ?");
+            params.push(Box::new(dir.to_string()));
+        }
+        if let Some(prov) = provider {
+            sql.push_str(" AND provider = ?");
+            params.push(Box::new(prov.to_string()));
+        }
+
+        sql.push_str(" ORDER BY started_at DESC LIMIT ? OFFSET ?");
+        params.push(Box::new(limit));
+        params.push(Box::new(offset));
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_ref.as_slice(), |row| {
+            let id: String = row.get(0)?;
+            let cli_session_id: Option<String> = row.get(1)?;
+            let profile_name: Option<String> = row.get(2)?;
+            let provider: String = row.get(3)?;
+            let directory: Option<String> = row.get(4)?;
+            let terminal_pid: Option<u32> = row.get(5)?;
+            let trigger_str: String = row.get(6)?;
+            let status_str: String = row.get(7)?;
+            let started_at_str: String = row.get(8)?;
+            let ended_at_str: Option<String> = row.get(9)?;
+            let duration_ms: Option<i64> = row.get(10)?;
+            let error_message: Option<String> = row.get(11)?;
+            let agent: Option<String> = row.get(12)?;
+            let parent_session_id: Option<String> = row.get(13)?;
+            let forked_from: Option<String> = row.get(14)?;
+
+            Ok((id, cli_session_id, profile_name, provider, directory, terminal_pid,
+                trigger_str, status_str, started_at_str, ended_at_str, duration_ms,
+                error_message, agent, parent_session_id, forked_from))
+        })?;
+
+        let mut sessions = Vec::new();
+        for row in rows {
+            let (id, cli_session_id, profile_name, provider, directory, terminal_pid,
+                 trigger_str, status_str, started_at_str, ended_at_str, duration_ms,
+                 error_message, agent, parent_session_id, forked_from) = row?;
+
+            let started_at = started_at_str.parse::<DateTime<Utc>>()
+                .unwrap_or_else(|_| Utc::now());
+            let ended_at = ended_at_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+
+            sessions.push(Session {
+                id,
+                cli_session_id,
+                profile_name,
+                provider,
+                directory,
+                terminal_pid,
+                trigger: parse_trigger(&trigger_str),
+                status: parse_session_status(&status_str),
+                started_at,
+                ended_at,
+                duration_ms,
+                error_message,
+                agent,
+                parent_session_id,
+                forked_from,
+            });
+        }
+        Ok(sessions)
+    }
+
     pub fn list_running_sessions(&self) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, cli_session_id, profile_name, provider, directory, terminal_pid, trigger, status, started_at, ended_at, duration_ms, error_message, agent, parent_session_id, forked_from
@@ -902,6 +983,61 @@ mod tests {
             assert_eq!(s2.status, SessionStatus::Error, "error run should map to error");
             assert_eq!(s2.provider, "claude");
         }
+    }
+
+    #[test]
+    fn test_list_sessions_filtered_by_provider() {
+        let store = Store::open_in_memory().unwrap();
+
+        // Insert two claude sessions and one gemini session
+        for i in 0..2 {
+            let session = make_session(&format!("claude-{:03}", i));
+            store.insert_session(&session).unwrap();
+        }
+        let mut gemini_session = make_session("gemini-001");
+        gemini_session.provider = "gemini".to_string();
+        store.insert_session(&gemini_session).unwrap();
+
+        let claude_results = store.list_sessions_filtered(None, Some("claude"), 50, 0).unwrap();
+        assert_eq!(claude_results.len(), 2);
+        for s in &claude_results {
+            assert_eq!(s.provider, "claude");
+        }
+
+        let gemini_results = store.list_sessions_filtered(None, Some("gemini"), 50, 0).unwrap();
+        assert_eq!(gemini_results.len(), 1);
+        assert_eq!(gemini_results[0].id, "gemini-001");
+
+        let all_results = store.list_sessions_filtered(None, None, 50, 0).unwrap();
+        assert_eq!(all_results.len(), 3);
+    }
+
+    #[test]
+    fn test_list_sessions_filtered_by_directory() {
+        let store = Store::open_in_memory().unwrap();
+
+        // Insert sessions with different directories
+        let mut s1 = make_session("dir-001");
+        s1.directory = Some("/home/user/project-a".to_string());
+        store.insert_session(&s1).unwrap();
+
+        let mut s2 = make_session("dir-002");
+        s2.directory = Some("/home/user/project-b".to_string());
+        store.insert_session(&s2).unwrap();
+
+        let mut s3 = make_session("dir-003");
+        s3.directory = Some("/home/user/project-a".to_string());
+        store.insert_session(&s3).unwrap();
+
+        let results = store.list_sessions_filtered(Some("/home/user/project-a"), None, 50, 0).unwrap();
+        assert_eq!(results.len(), 2);
+        for s in &results {
+            assert_eq!(s.directory, Some("/home/user/project-a".to_string()));
+        }
+
+        let results_b = store.list_sessions_filtered(Some("/home/user/project-b"), None, 50, 0).unwrap();
+        assert_eq!(results_b.len(), 1);
+        assert_eq!(results_b[0].id, "dir-002");
     }
 
     #[test]

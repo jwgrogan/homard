@@ -106,6 +106,10 @@ export async function listRuns(limit?: number, offset?: number): Promise<Run[]> 
   return invoke("list_runs", { limit, offset });
 }
 
+export async function listSessionsFiltered(directory?: string, provider?: string, limit?: number, offset?: number): Promise<Session[]> {
+  return invoke("list_sessions_filtered", { directory, provider, limit, offset });
+}
+
 // Scheduler
 export async function createSchedule(schedule: Schedule): Promise<void> {
   return invoke("create_schedule", { schedule });

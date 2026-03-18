@@ -85,6 +85,7 @@ pub fn run() {
             commands::health::run_health_check,
             // process / sessions
             commands::process::list_sessions,
+            commands::process::list_sessions_filtered,
             commands::process::spawn_session,
             commands::process::kill_session,
             commands::process::resume_session,
