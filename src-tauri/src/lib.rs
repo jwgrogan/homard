@@ -47,6 +47,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(app_state)
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             tray::create_tray(app)?;
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
             app.global_shortcut().register("CmdOrCtrl+Shift+C")?;
@@ -77,6 +80,36 @@ pub fn run() {
                     }
                 }
             });
+
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                let app_handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    use tauri::WindowEvent;
+                    match event {
+                        WindowEvent::Focused(true) => {
+                            #[cfg(target_os = "macos")]
+                            {
+                                let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Regular);
+                            }
+                        }
+                        WindowEvent::CloseRequested { api, .. } => {
+                            // Don't actually close — just hide the window
+                            api.prevent_close();
+                            if let Some(w) = app_handle.get_webview_window("main") {
+                                let _ = w.hide();
+                            }
+                            #[cfg(target_os = "macos")]
+                            {
+                                let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                            }
+                        }
+                        _ => {}
+                    }
+                });
+                }
+            }
 
             Ok(())
         })
