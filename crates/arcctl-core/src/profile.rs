@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::error::{ArcctlError, Result};
+use crate::provider::ProviderId;
 use crate::types::Profile;
 
 const CLAUDE_DIR_FILES: &[&str] = &[".credentials.json", "statsig", "statsig_metadata"];
@@ -51,6 +52,10 @@ impl ProfileManager {
             fs::copy(&home_src, &dest)?;
         }
 
+        // Write provider.json (default to Claude)
+        let provider_json = serde_json::to_string(&ProviderId::Claude).unwrap();
+        std::fs::write(dest_dir.join("provider.json"), provider_json)?;
+
         Ok(())
     }
 
@@ -82,8 +87,14 @@ impl ProfileManager {
 
             let email = extract_email_from_credentials(&path.join(".credentials.json"));
 
+            let provider = std::fs::read_to_string(path.join("provider.json"))
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or(ProviderId::Claude);
+
             profiles.push(Profile {
                 name,
+                provider,
                 email,
                 is_active: false,
             });

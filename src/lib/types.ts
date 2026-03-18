@@ -10,6 +10,7 @@ export interface HealthStatus {
 
 export interface Profile {
   name: string;
+  provider: "claude" | "gemini";
   email: string | null;
   is_active: boolean;
 }

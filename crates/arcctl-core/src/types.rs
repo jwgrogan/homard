@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::provider::ProviderId;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum RunStatus {
@@ -45,6 +47,7 @@ pub struct Run {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
     pub name: String,
+    pub provider: ProviderId,
     pub email: Option<String>,
     pub is_active: bool,
 }
