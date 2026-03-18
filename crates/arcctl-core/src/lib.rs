@@ -7,6 +7,7 @@ pub mod health;
 pub mod keychain;
 pub mod launchd;
 pub mod mcp_sync;
+pub mod parsers;
 pub mod process;
 pub mod profile;
 pub mod project_defaults;
