@@ -13,6 +13,7 @@ pub mod profile;
 pub mod project_defaults;
 pub mod provider;
 pub mod schedule;
+pub mod session_monitor;
 pub mod settings;
 pub mod store;
 pub mod telegram;

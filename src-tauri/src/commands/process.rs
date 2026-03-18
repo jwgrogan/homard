@@ -136,6 +136,14 @@ pub async fn kill_session(
 }
 
 #[tauri::command]
+pub fn get_session_tree(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Option<arcctl_core::parsers::SessionTree> {
+    state.session_monitor.get_tree(&session_id)
+}
+
+#[tauri::command]
 pub fn list_runs(
     state: State<'_, AppState>,
     limit: Option<u32>,

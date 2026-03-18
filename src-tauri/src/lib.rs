@@ -4,6 +4,7 @@ mod telegram_poller;
 mod tray;
 
 use arcctl_core::config::{ArcctlConfig, ArcctlDirs};
+use arcctl_core::session_monitor::SessionMonitor;
 use arcctl_core::store::Store;
 use state::AppState;
 use std::sync::Mutex;
@@ -23,6 +24,7 @@ pub fn run() {
         preferred_terminal: Mutex::new(None),
         telegram_poll_handle: Mutex::new(None),
         telegram_cancel: Mutex::new(None),
+        session_monitor: SessionMonitor::new(),
     };
 
     tauri::Builder::default()
@@ -86,6 +88,7 @@ pub fn run() {
             commands::process::spawn_session,
             commands::process::kill_session,
             commands::process::list_runs,
+            commands::process::get_session_tree,
             // profiles
             commands::profile::list_profiles,
             commands::profile::switch_profile,
