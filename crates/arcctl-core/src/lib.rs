@@ -6,6 +6,7 @@ pub mod health;
 #[cfg(target_os = "macos")]
 pub mod keychain;
 pub mod launchd;
+pub mod mcp_sync;
 pub mod process;
 pub mod profile;
 pub mod project_defaults;

@@ -134,6 +134,24 @@ export async function listScheduleRuns(scheduleId: string, limit?: number, offse
   return invoke("list_schedule_runs", { scheduleId, limit, offset });
 }
 
+// --- Managed MCP Sync ---
+export async function listManagedMcps(): Promise<Record<string, McpServerConfig>> {
+  const result = await invoke<Record<string, McpServerConfig>>("list_managed_mcps");
+  return result;
+}
+
+export async function addManagedMcp(name: string, config: McpServerConfig): Promise<void> {
+  return invoke("add_managed_mcp", { name, config });
+}
+
+export async function removeManagedMcp(name: string): Promise<void> {
+  return invoke("remove_managed_mcp", { name });
+}
+
+export async function syncAllMcps(): Promise<void> {
+  return invoke("sync_all_mcps");
+}
+
 // --- Telegram ---
 export async function saveTelegramToken(token: string): Promise<void> {
   return invoke("save_telegram_token_cmd", { token });

@@ -86,6 +86,11 @@ pub fn run() {
             commands::scheduler::discover_launchd_jobs,
             commands::scheduler::import_launchd_job_cmd,
             commands::scheduler::list_schedule_runs,
+            // mcp sync
+            commands::mcp_sync::list_managed_mcps,
+            commands::mcp_sync::add_managed_mcp,
+            commands::mcp_sync::remove_managed_mcp,
+            commands::mcp_sync::sync_all_mcps,
             // telegram
             commands::telegram::save_telegram_token_cmd,
             commands::telegram::verify_telegram_token,
