@@ -8,6 +8,7 @@ pub mod keychain;
 pub mod launchd;
 pub mod process;
 pub mod profile;
+pub mod project_defaults;
 pub mod provider;
 pub mod schedule;
 pub mod settings;
