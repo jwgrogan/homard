@@ -129,6 +129,22 @@ export interface Session {
   forked_from: string | null;
 }
 
+// --- Agent Tree ---
+export interface AgentNode {
+  id: string;
+  name: string;
+  agent_type: string | null;
+  status: "working" | "waiting" | "done" | "error";
+  current_activity: string | null;
+  files_touched: string[];
+  children: AgentNode[];
+}
+
+export interface SessionTree {
+  session_id: string;
+  root: AgentNode;
+}
+
 // --- Runs ---
 export interface Run {
   id: string;

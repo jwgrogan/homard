@@ -3,6 +3,7 @@ import type {
   HealthStatus,
   Profile,
   Session,
+  SessionTree,
   ClaudeSettings,
   McpServerConfig,
   AgentInfo,
@@ -87,6 +88,10 @@ export async function spawnSession(directory: string, provider: string, profile?
 
 export async function killSession(sessionId: string): Promise<void> {
   return invoke("kill_session", { sessionId });
+}
+
+export async function getSessionTree(sessionId: string): Promise<SessionTree | null> {
+  return invoke("get_session_tree", { sessionId });
 }
 
 export async function listRuns(limit?: number, offset?: number): Promise<Run[]> {

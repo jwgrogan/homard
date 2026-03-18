@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useSessionsStore } from "../lib/store";
 import type { Run, Session } from "../lib/types";
 import NewSessionModal from "../components/NewSessionModal";
+import SessionDetail from "../components/SessionDetail";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -109,7 +110,7 @@ function StatusBadge({ status }: { status: Session["status"] }) {
 
 // ── Running session card ──────────────────────────────────────────────────────
 
-function RunningSessionCard({ session }: { session: Session }) {
+function RunningSessionCard({ session, onClick }: { session: Session; onClick?: () => void }) {
   const [, setTick] = useState(0);
   const { killSession } = useSessionsStore();
 
@@ -119,7 +120,10 @@ function RunningSessionCard({ session }: { session: Session }) {
   }, []);
 
   return (
-    <div className="flex flex-col gap-3 p-4 rounded-xl bg-zinc-800 border border-zinc-700 hover:border-zinc-600 transition-colors">
+    <div
+      className="flex flex-col gap-3 p-4 rounded-xl bg-zinc-800 border border-zinc-700 hover:border-zinc-600 transition-colors cursor-pointer"
+      onClick={onClick}
+    >
       {/* Top row */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
@@ -153,7 +157,8 @@ function RunningSessionCard({ session }: { session: Session }) {
         <div className="flex items-center gap-2">
           <button
             className="px-3 py-1 text-xs rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-200 transition-colors"
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               // Placeholder: open terminal
               console.log("Open terminal for session", session.id);
             }}
@@ -161,7 +166,7 @@ function RunningSessionCard({ session }: { session: Session }) {
             Open Terminal
           </button>
           <button
-            onClick={() => killSession(session.id)}
+            onClick={(e) => { e.stopPropagation(); killSession(session.id); }}
             className="px-3 py-1 text-xs rounded-lg bg-red-700/70 hover:bg-red-600 text-red-100 transition-colors"
           >
             Kill
@@ -174,9 +179,12 @@ function RunningSessionCard({ session }: { session: Session }) {
 
 // ── History session card ──────────────────────────────────────────────────────
 
-function HistorySessionCard({ session }: { session: Session }) {
+function HistorySessionCard({ session, onClick }: { session: Session; onClick?: () => void }) {
   return (
-    <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-800 border border-zinc-700/50 hover:border-zinc-600 transition-colors">
+    <div
+      className="flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-800 border border-zinc-700/50 hover:border-zinc-600 transition-colors cursor-pointer"
+      onClick={onClick}
+    >
       <StatusBadge status={session.status} />
       <ProviderBadge provider={session.provider} />
       <span className="text-sm text-zinc-300 min-w-0 truncate flex-1">
@@ -271,6 +279,7 @@ export default function Sessions() {
     useSessionsStore();
   const [runsOffset, setRunsOffset] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
+  const [selectedSession, setSelectedSession] = useState<Session | null>(null);
 
   // Poll live sessions every 5 seconds
   useEffect(() => {
@@ -319,11 +328,19 @@ export default function Sessions() {
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {runningSessions.map((session) => (
-                <RunningSessionCard key={session.id} session={session} />
+                <RunningSessionCard key={session.id} session={session} onClick={() => setSelectedSession(session)} />
               ))}
             </div>
           )}
         </section>
+
+        {/* Session Detail Panel */}
+        {selectedSession && (
+          <SessionDetail
+            session={selectedSession}
+            onClose={() => setSelectedSession(null)}
+          />
+        )}
 
         {/* Session History (from sessions table, non-running) */}
         {historySessions.length > 0 && (
@@ -333,7 +350,7 @@ export default function Sessions() {
             </h2>
             <div className="flex flex-col gap-2">
               {historySessions.map((session) => (
-                <HistorySessionCard key={session.id} session={session} />
+                <HistorySessionCard key={session.id} session={session} onClick={() => setSelectedSession(session)} />
               ))}
             </div>
           </section>
