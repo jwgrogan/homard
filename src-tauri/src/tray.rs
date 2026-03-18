@@ -1,4 +1,5 @@
 use tauri::{
+    image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::TrayIconBuilder,
     App, Manager,
@@ -14,7 +15,12 @@ pub fn create_tray(app: &App) -> tauri::Result<()> {
 
     let menu = MenuBuilder::new(app).item(&open).item(&quit).build()?;
 
+    let icon = Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
+
     TrayIconBuilder::new()
+        .icon(icon)
+        .icon_as_template(true)
+        .tooltip("arcctl")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "quit" => {
