@@ -80,3 +80,9 @@ pub fn check_all_profile_health(
         Err(_) => Vec::new(),
     }
 }
+
+#[tauri::command]
+pub fn detect_claude_switch() -> bool {
+    std::path::Path::new("/usr/local/bin/claude-switch").exists()
+        || std::path::Path::new("/opt/homebrew/bin/claude-switch").exists()
+}

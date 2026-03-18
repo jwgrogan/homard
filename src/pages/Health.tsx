@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { runHealthCheck } from "../lib/tauri";
+import { runHealthCheck, detectClaudeSwitch } from "../lib/tauri";
 import type { HealthStatus } from "../lib/types";
 
 function StatusDot({ ok }: { ok: boolean }) {
@@ -13,6 +13,7 @@ function StatusDot({ ok }: { ok: boolean }) {
 export default function Health() {
   const [status, setStatus] = useState<HealthStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [claudeSwitchDetected, setClaudeSwitchDetected] = useState(false);
 
   useEffect(() => {
     runHealthCheck()
@@ -20,6 +21,10 @@ export default function Health() {
       .catch((e: unknown) =>
         setError(e instanceof Error ? e.message : String(e))
       );
+  }, []);
+
+  useEffect(() => {
+    detectClaudeSwitch().then(setClaudeSwitchDetected);
   }, []);
 
   if (error) {
@@ -38,6 +43,19 @@ export default function Health() {
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold text-zinc-100">System Health</h2>
+
+      {claudeSwitchDetected && (
+        <div className="bg-yellow-900/50 border border-yellow-700 rounded-lg p-4 mb-6">
+          <h3 className="text-yellow-200 font-medium">claude-switch detected</h3>
+          <p className="text-yellow-300/80 text-sm mt-1">
+            arcctl now handles profile switching. You can import your existing profiles in Settings → Profiles,
+            then remove claude-switch:
+          </p>
+          <code className="block mt-2 text-xs text-yellow-200 bg-yellow-900/50 rounded px-2 py-1">
+            brew uninstall claude-switch
+          </code>
+        </div>
+      )}
 
       <div className="bg-zinc-800 rounded-lg p-4 space-y-3">
         <div className="flex items-center gap-3">

@@ -86,6 +86,10 @@ export async function checkAllProfileHealth(): Promise<[string, CredentialHealth
   return invoke("check_all_profile_health");
 }
 
+export async function detectClaudeSwitch(): Promise<boolean> {
+  return invoke("detect_claude_switch");
+}
+
 // Sessions
 export async function spawnSession(directory: string, provider: string, profile?: string, agent?: string, prompt?: string): Promise<Session> {
   return invoke("spawn_session", { directory, provider, profile, agent, prompt });

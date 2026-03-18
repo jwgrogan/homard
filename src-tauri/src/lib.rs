@@ -131,6 +131,7 @@ pub fn run() {
             commands::profile::import_profile,
             commands::profile::check_profile_health,
             commands::profile::check_all_profile_health,
+            commands::profile::detect_claude_switch,
             // settings (legacy)
             commands::config::read_claude_settings_cmd,
             // settings (new)
