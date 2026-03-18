@@ -164,6 +164,31 @@ impl Store {
                 forked_from TEXT
             );
         ")?;
+
+        // Backfill: copy runs into sessions if sessions is empty and runs has data
+        let sessions_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM sessions", [], |row| row.get(0)
+        )?;
+        let runs_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM runs", [], |row| row.get(0)
+        )?;
+
+        if sessions_count == 0 && runs_count > 0 {
+            self.conn.execute_batch("
+                INSERT INTO sessions (id, profile_name, provider, directory, trigger, status, started_at, ended_at, duration_ms, error_message, agent)
+                SELECT id, profile, 'claude', directory, trigger,
+                    CASE status
+                        WHEN 'complete' THEN 'stopped'
+                        WHEN 'running' THEN 'running'
+                        WHEN 'error' THEN 'error'
+                        WHEN 'killed' THEN 'killed'
+                        ELSE 'stopped'
+                    END,
+                    started_at, finished_at, duration_ms, error_message, agent
+                FROM runs;
+            ")?;
+        }
+
         Ok(())
     }
 
@@ -825,6 +850,84 @@ mod tests {
         assert_eq!(running.len(), 3);
         for s in &running {
             assert_eq!(s.status, SessionStatus::Running);
+        }
+    }
+
+    #[test]
+    fn test_backfill_runs_into_sessions_on_migration() {
+        // Simulate an existing DB: open, insert runs (but no sessions), then close and reopen
+        // to trigger the backfill migration.
+        use tempfile::NamedTempFile;
+
+        let tmp = NamedTempFile::new().unwrap();
+        let db_path = tmp.path().to_path_buf();
+
+        // First open: create schema and insert runs (sessions table will be empty)
+        {
+            let store = Store::open(&db_path).unwrap();
+
+            // Insert a 'complete' run — should backfill as 'stopped'
+            let mut run_complete = make_run("run-backfill-001");
+            run_complete.profile = Some("my-profile".to_string());
+            run_complete.agent = Some("agent-v1".to_string());
+            store.insert_run(&run_complete).unwrap();
+            store.complete_run("run-backfill-001", RunStatus::Complete, None).unwrap();
+
+            // Insert an 'error' run
+            let mut run_error = make_run("run-backfill-002");
+            run_error.profile = Some("my-profile".to_string());
+            store.insert_run(&run_error).unwrap();
+            store.complete_run("run-backfill-002", RunStatus::Error, Some("oops".to_string())).unwrap();
+        }
+        // tmp keeps the file alive; the Store is dropped (connection closed) here.
+
+        // Second open: migrate() should detect runs_count > 0 && sessions_count == 0
+        // and backfill.
+        {
+            let store = Store::open(&db_path).unwrap();
+
+            let sessions = store.list_sessions(100, 0).unwrap();
+            assert_eq!(sessions.len(), 2, "sessions should have been backfilled from runs");
+
+            // Find the backfilled sessions by id
+            let s1 = sessions.iter().find(|s| s.id == "run-backfill-001")
+                .expect("backfilled session for run-backfill-001 should exist");
+            assert_eq!(s1.status, SessionStatus::Stopped, "complete run should map to stopped");
+            assert_eq!(s1.provider, "claude");
+            assert_eq!(s1.profile_name, Some("my-profile".to_string()));
+            assert_eq!(s1.agent, Some("agent-v1".to_string()));
+
+            let s2 = sessions.iter().find(|s| s.id == "run-backfill-002")
+                .expect("backfilled session for run-backfill-002 should exist");
+            assert_eq!(s2.status, SessionStatus::Error, "error run should map to error");
+            assert_eq!(s2.provider, "claude");
+        }
+    }
+
+    #[test]
+    fn test_backfill_does_not_run_when_sessions_already_exist() {
+        use tempfile::NamedTempFile;
+
+        let tmp = NamedTempFile::new().unwrap();
+        let db_path = tmp.path().to_path_buf();
+
+        // First open: insert both a run and a session
+        {
+            let store = Store::open(&db_path).unwrap();
+
+            let run = make_run("run-no-backfill-001");
+            store.insert_run(&run).unwrap();
+
+            let session = make_session("sess-existing-001");
+            store.insert_session(&session).unwrap();
+        }
+
+        // Second open: sessions is not empty, so backfill should NOT add runs
+        {
+            let store = Store::open(&db_path).unwrap();
+            let sessions = store.list_sessions(100, 0).unwrap();
+            assert_eq!(sessions.len(), 1, "backfill should not run when sessions already exist");
+            assert_eq!(sessions[0].id, "sess-existing-001");
         }
     }
 }
