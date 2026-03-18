@@ -87,6 +87,8 @@ pub fn run() {
             commands::process::list_sessions,
             commands::process::spawn_session,
             commands::process::kill_session,
+            commands::process::resume_session,
+            commands::process::fork_session,
             commands::process::list_runs,
             commands::process::get_session_tree,
             // profiles

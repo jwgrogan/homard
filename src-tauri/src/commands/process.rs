@@ -136,6 +136,141 @@ pub async fn kill_session(
 }
 
 #[tauri::command]
+pub fn resume_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<Session, String> {
+    let original = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        store.get_session(&session_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Session not found".to_string())?
+    };
+
+    let provider_id = ProviderId::from_str(&original.provider)
+        .map_err(|e| e.to_string())?;
+
+    let cli_session_id = original.cli_session_id
+        .ok_or_else(|| "No CLI session ID — cannot resume".to_string())?;
+
+    let dir = original.directory.unwrap_or_else(|| ".".to_string());
+
+    let cmd = format!("cd {} && {} {} {}",
+        shell_escape(&dir),
+        provider_id.cli_command(),
+        provider_id.resume_flag(),
+        cli_session_id,
+    );
+
+    let terminal = {
+        let pref = state.preferred_terminal.lock().map_err(|e| e.to_string())?;
+        pref.clone().unwrap_or_else(|| {
+            TerminalApp::detect_installed().into_iter().next()
+                .unwrap_or(TerminalApp::AppleTerminal)
+        })
+    };
+
+    let terminal_pid = terminal.launch(&cmd).map_err(|e| e.to_string())?;
+
+    let new_session_id = Uuid::new_v4().to_string();
+    let session = Session {
+        id: new_session_id,
+        cli_session_id: Some(cli_session_id),
+        profile_name: original.profile_name,
+        provider: original.provider,
+        directory: Some(dir),
+        terminal_pid,
+        trigger: Trigger::Manual,
+        status: SessionStatus::Running,
+        started_at: Utc::now(),
+        ended_at: None,
+        duration_ms: None,
+        error_message: None,
+        agent: original.agent,
+        parent_session_id: Some(session_id),
+        forked_from: None,
+    };
+
+    {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        store.insert_session(&session).map_err(|e| e.to_string())?;
+    }
+
+    Ok(session)
+}
+
+#[tauri::command]
+pub fn fork_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<Session, String> {
+    let original = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        store.get_session(&session_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Session not found".to_string())?
+    };
+
+    let provider_id = ProviderId::from_str(&original.provider)
+        .map_err(|e| e.to_string())?;
+
+    let cli_session_id = original.cli_session_id
+        .ok_or_else(|| "No CLI session ID — cannot fork".to_string())?;
+
+    let dir = original.directory.unwrap_or_else(|| ".".to_string());
+
+    // Claude supports --fork-session, Gemini starts a new session
+    let cmd = match provider_id {
+        ProviderId::Claude => format!("cd {} && {} {} {} --fork-session",
+            shell_escape(&dir),
+            provider_id.cli_command(),
+            provider_id.resume_flag(),
+            cli_session_id,
+        ),
+        ProviderId::Gemini => format!("cd {} && {}",
+            shell_escape(&dir),
+            provider_id.cli_command(),
+        ),
+    };
+
+    let terminal = {
+        let pref = state.preferred_terminal.lock().map_err(|e| e.to_string())?;
+        pref.clone().unwrap_or_else(|| {
+            TerminalApp::detect_installed().into_iter().next()
+                .unwrap_or(TerminalApp::AppleTerminal)
+        })
+    };
+
+    let terminal_pid = terminal.launch(&cmd).map_err(|e| e.to_string())?;
+
+    let new_session_id = Uuid::new_v4().to_string();
+    let session = Session {
+        id: new_session_id,
+        cli_session_id: None, // Fork creates a new CLI session ID
+        profile_name: original.profile_name,
+        provider: original.provider,
+        directory: Some(dir),
+        terminal_pid,
+        trigger: Trigger::Manual,
+        status: SessionStatus::Running,
+        started_at: Utc::now(),
+        ended_at: None,
+        duration_ms: None,
+        error_message: None,
+        agent: original.agent,
+        parent_session_id: None,
+        forked_from: Some(session_id),
+    };
+
+    {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        store.insert_session(&session).map_err(|e| e.to_string())?;
+    }
+
+    Ok(session)
+}
+
+#[tauri::command]
 pub fn get_session_tree(
     state: State<'_, AppState>,
     session_id: String,

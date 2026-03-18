@@ -90,6 +90,14 @@ export async function killSession(sessionId: string): Promise<void> {
   return invoke("kill_session", { sessionId });
 }
 
+export async function resumeSession(sessionId: string): Promise<Session> {
+  return invoke("resume_session", { sessionId });
+}
+
+export async function forkSession(sessionId: string): Promise<Session> {
+  return invoke("fork_session", { sessionId });
+}
+
 export async function getSessionTree(sessionId: string): Promise<SessionTree | null> {
   return invoke("get_session_tree", { sessionId });
 }

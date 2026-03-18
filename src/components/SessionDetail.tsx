@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Session, SessionTree } from "../lib/types";
-import { getSessionTree } from "../lib/tauri";
+import { getSessionTree, resumeSession, forkSession } from "../lib/tauri";
 import AgentTree from "./AgentTree";
 
 interface SessionDetailProps {
@@ -10,6 +10,14 @@ interface SessionDetailProps {
 
 export default function SessionDetail({ session, onClose }: SessionDetailProps) {
   const [tree, setTree] = useState<SessionTree | null>(null);
+
+  const handleResume = async () => {
+    await resumeSession(session.id);
+  };
+
+  const handleFork = async () => {
+    await forkSession(session.id);
+  };
 
   useEffect(() => {
     const fetchTree = async () => {
@@ -40,6 +48,13 @@ export default function SessionDetail({ session, onClose }: SessionDetailProps) 
           <div className="col-span-2"><span className="text-zinc-500">CLI Session:</span> <span className="text-zinc-300 font-mono text-xs">{session.cli_session_id}</span></div>
         )}
       </div>
+
+      {session.status !== "running" && session.cli_session_id && (
+        <div className="flex gap-2">
+          <button onClick={handleResume} className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 rounded text-white">Resume</button>
+          <button onClick={handleFork} className="px-3 py-1.5 text-sm bg-zinc-600 hover:bg-zinc-500 rounded text-white">Fork</button>
+        </div>
+      )}
 
       {tree ? (
         <div>
