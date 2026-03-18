@@ -2,7 +2,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
 use chrono::{DateTime, Utc};
 
-use crate::types::{Run, RunStatus, Trigger};
+use crate::types::{Run, RunStatus, Session, SessionStatus, Trigger};
 use crate::error::Result;
 
 pub struct Store {
@@ -44,6 +44,24 @@ fn status_to_str(s: &RunStatus) -> &'static str {
         "error" => "error",
         "killed" => "killed",
         _ => "running",
+    }
+}
+
+fn parse_session_status(s: &str) -> SessionStatus {
+    match s {
+        "stopped" => SessionStatus::Stopped,
+        "error" => SessionStatus::Error,
+        "killed" => SessionStatus::Killed,
+        _ => SessionStatus::Running,
+    }
+}
+
+fn session_status_to_str(s: &SessionStatus) -> &'static str {
+    match s {
+        SessionStatus::Running => "running",
+        SessionStatus::Stopped => "stopped",
+        SessionStatus::Error => "error",
+        SessionStatus::Killed => "killed",
     }
 }
 
@@ -126,6 +144,24 @@ impl Store {
                 last_message_at TEXT,
                 auto_reply INTEGER DEFAULT 0,
                 metadata TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY,
+                cli_session_id TEXT,
+                profile_name TEXT,
+                provider TEXT NOT NULL DEFAULT 'claude',
+                directory TEXT,
+                terminal_pid INTEGER,
+                trigger TEXT NOT NULL DEFAULT 'manual',
+                status TEXT NOT NULL DEFAULT 'running',
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                duration_ms INTEGER,
+                error_message TEXT,
+                agent TEXT,
+                parent_session_id TEXT,
+                forked_from TEXT
             );
         ")?;
         Ok(())
@@ -345,6 +381,239 @@ impl Store {
         }
         Ok(runs)
     }
+
+    pub fn insert_session(&self, session: &Session) -> Result<()> {
+        let trigger_str = trigger_to_str(&session.trigger);
+        let status_str = session_status_to_str(&session.status);
+        let started_at = session.started_at.to_rfc3339();
+        let ended_at = session.ended_at.as_ref().map(|dt| dt.to_rfc3339());
+
+        self.conn.execute(
+            "INSERT INTO sessions (id, cli_session_id, profile_name, provider, directory, terminal_pid, trigger, status, started_at, ended_at, duration_ms, error_message, agent, parent_session_id, forked_from)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![
+                session.id,
+                session.cli_session_id,
+                session.profile_name,
+                session.provider,
+                session.directory,
+                session.terminal_pid,
+                trigger_str,
+                status_str,
+                started_at,
+                ended_at,
+                session.duration_ms,
+                session.error_message,
+                session.agent,
+                session.parent_session_id,
+                session.forked_from,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_session(&self, id: &str) -> Result<Option<Session>> {
+        let result = self.conn.query_row(
+            "SELECT id, cli_session_id, profile_name, provider, directory, terminal_pid, trigger, status, started_at, ended_at, duration_ms, error_message, agent, parent_session_id, forked_from FROM sessions WHERE id = ?1",
+            params![id],
+            |row| {
+                let id: String = row.get(0)?;
+                let cli_session_id: Option<String> = row.get(1)?;
+                let profile_name: Option<String> = row.get(2)?;
+                let provider: String = row.get(3)?;
+                let directory: Option<String> = row.get(4)?;
+                let terminal_pid: Option<u32> = row.get(5)?;
+                let trigger_str: String = row.get(6)?;
+                let status_str: String = row.get(7)?;
+                let started_at_str: String = row.get(8)?;
+                let ended_at_str: Option<String> = row.get(9)?;
+                let duration_ms: Option<i64> = row.get(10)?;
+                let error_message: Option<String> = row.get(11)?;
+                let agent: Option<String> = row.get(12)?;
+                let parent_session_id: Option<String> = row.get(13)?;
+                let forked_from: Option<String> = row.get(14)?;
+
+                Ok((id, cli_session_id, profile_name, provider, directory, terminal_pid,
+                    trigger_str, status_str, started_at_str, ended_at_str, duration_ms,
+                    error_message, agent, parent_session_id, forked_from))
+            },
+        ).optional()?;
+
+        match result {
+            None => Ok(None),
+            Some((id, cli_session_id, profile_name, provider, directory, terminal_pid,
+                  trigger_str, status_str, started_at_str, ended_at_str, duration_ms,
+                  error_message, agent, parent_session_id, forked_from)) => {
+                let started_at = started_at_str.parse::<DateTime<Utc>>()
+                    .unwrap_or_else(|_| Utc::now());
+                let ended_at = ended_at_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+
+                Ok(Some(Session {
+                    id,
+                    cli_session_id,
+                    profile_name,
+                    provider,
+                    directory,
+                    terminal_pid,
+                    trigger: parse_trigger(&trigger_str),
+                    status: parse_session_status(&status_str),
+                    started_at,
+                    ended_at,
+                    duration_ms,
+                    error_message,
+                    agent,
+                    parent_session_id,
+                    forked_from,
+                }))
+            }
+        }
+    }
+
+    pub fn complete_session(&self, id: &str, status: SessionStatus, error: Option<String>) -> Result<()> {
+        let status_str = session_status_to_str(&status);
+        let ended_at = Utc::now().to_rfc3339();
+
+        let started_at_str: Option<String> = self.conn.query_row(
+            "SELECT started_at FROM sessions WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        ).optional()?;
+
+        let duration_ms: Option<i64> = started_at_str.and_then(|s| {
+            s.parse::<DateTime<Utc>>().ok().map(|started| {
+                let now = Utc::now();
+                (now - started).num_milliseconds()
+            })
+        });
+
+        self.conn.execute(
+            "UPDATE sessions SET status = ?1, ended_at = ?2, duration_ms = ?3, error_message = ?4 WHERE id = ?5",
+            params![status_str, ended_at, duration_ms, error, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_sessions(&self, limit: i64, offset: i64) -> Result<Vec<Session>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, cli_session_id, profile_name, provider, directory, terminal_pid, trigger, status, started_at, ended_at, duration_ms, error_message, agent, parent_session_id, forked_from
+             FROM sessions
+             ORDER BY started_at DESC
+             LIMIT ?1 OFFSET ?2",
+        )?;
+
+        let rows = stmt.query_map(params![limit, offset], |row| {
+            let id: String = row.get(0)?;
+            let cli_session_id: Option<String> = row.get(1)?;
+            let profile_name: Option<String> = row.get(2)?;
+            let provider: String = row.get(3)?;
+            let directory: Option<String> = row.get(4)?;
+            let terminal_pid: Option<u32> = row.get(5)?;
+            let trigger_str: String = row.get(6)?;
+            let status_str: String = row.get(7)?;
+            let started_at_str: String = row.get(8)?;
+            let ended_at_str: Option<String> = row.get(9)?;
+            let duration_ms: Option<i64> = row.get(10)?;
+            let error_message: Option<String> = row.get(11)?;
+            let agent: Option<String> = row.get(12)?;
+            let parent_session_id: Option<String> = row.get(13)?;
+            let forked_from: Option<String> = row.get(14)?;
+
+            Ok((id, cli_session_id, profile_name, provider, directory, terminal_pid,
+                trigger_str, status_str, started_at_str, ended_at_str, duration_ms,
+                error_message, agent, parent_session_id, forked_from))
+        })?;
+
+        let mut sessions = Vec::new();
+        for row in rows {
+            let (id, cli_session_id, profile_name, provider, directory, terminal_pid,
+                 trigger_str, status_str, started_at_str, ended_at_str, duration_ms,
+                 error_message, agent, parent_session_id, forked_from) = row?;
+
+            let started_at = started_at_str.parse::<DateTime<Utc>>()
+                .unwrap_or_else(|_| Utc::now());
+            let ended_at = ended_at_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+
+            sessions.push(Session {
+                id,
+                cli_session_id,
+                profile_name,
+                provider,
+                directory,
+                terminal_pid,
+                trigger: parse_trigger(&trigger_str),
+                status: parse_session_status(&status_str),
+                started_at,
+                ended_at,
+                duration_ms,
+                error_message,
+                agent,
+                parent_session_id,
+                forked_from,
+            });
+        }
+        Ok(sessions)
+    }
+
+    pub fn list_running_sessions(&self) -> Result<Vec<Session>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, cli_session_id, profile_name, provider, directory, terminal_pid, trigger, status, started_at, ended_at, duration_ms, error_message, agent, parent_session_id, forked_from
+             FROM sessions
+             WHERE status = 'running'
+             ORDER BY started_at DESC",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let cli_session_id: Option<String> = row.get(1)?;
+            let profile_name: Option<String> = row.get(2)?;
+            let provider: String = row.get(3)?;
+            let directory: Option<String> = row.get(4)?;
+            let terminal_pid: Option<u32> = row.get(5)?;
+            let trigger_str: String = row.get(6)?;
+            let status_str: String = row.get(7)?;
+            let started_at_str: String = row.get(8)?;
+            let ended_at_str: Option<String> = row.get(9)?;
+            let duration_ms: Option<i64> = row.get(10)?;
+            let error_message: Option<String> = row.get(11)?;
+            let agent: Option<String> = row.get(12)?;
+            let parent_session_id: Option<String> = row.get(13)?;
+            let forked_from: Option<String> = row.get(14)?;
+
+            Ok((id, cli_session_id, profile_name, provider, directory, terminal_pid,
+                trigger_str, status_str, started_at_str, ended_at_str, duration_ms,
+                error_message, agent, parent_session_id, forked_from))
+        })?;
+
+        let mut sessions = Vec::new();
+        for row in rows {
+            let (id, cli_session_id, profile_name, provider, directory, terminal_pid,
+                 trigger_str, status_str, started_at_str, ended_at_str, duration_ms,
+                 error_message, agent, parent_session_id, forked_from) = row?;
+
+            let started_at = started_at_str.parse::<DateTime<Utc>>()
+                .unwrap_or_else(|_| Utc::now());
+            let ended_at = ended_at_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+
+            sessions.push(Session {
+                id,
+                cli_session_id,
+                profile_name,
+                provider,
+                directory,
+                terminal_pid,
+                trigger: parse_trigger(&trigger_str),
+                status: parse_session_status(&status_str),
+                started_at,
+                ended_at,
+                duration_ms,
+                error_message,
+                agent,
+                parent_session_id,
+                forked_from,
+            });
+        }
+        Ok(sessions)
+    }
 }
 
 #[cfg(test)]
@@ -433,5 +702,129 @@ mod tests {
 
         let offset = store.list_runs(10, 3).unwrap();
         assert_eq!(offset.len(), 2);
+    }
+
+    fn make_session(id: &str) -> Session {
+        Session {
+            id: id.to_string(),
+            cli_session_id: None,
+            profile_name: Some("default".to_string()),
+            provider: "claude".to_string(),
+            directory: Some("/tmp".to_string()),
+            terminal_pid: None,
+            trigger: Trigger::Manual,
+            status: SessionStatus::Running,
+            started_at: Utc::now(),
+            ended_at: None,
+            duration_ms: None,
+            error_message: None,
+            agent: Some("test-agent".to_string()),
+            parent_session_id: None,
+            forked_from: None,
+        }
+    }
+
+    #[test]
+    fn test_sessions_table_exists() {
+        let store = Store::open_in_memory().unwrap();
+        let count: i64 = store.conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sessions'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_insert_and_get_session() {
+        let store = Store::open_in_memory().unwrap();
+        let session = make_session("sess-001");
+        store.insert_session(&session).unwrap();
+
+        let fetched = store.get_session("sess-001").unwrap().expect("session should exist");
+        assert_eq!(fetched.id, "sess-001");
+        assert_eq!(fetched.provider, "claude");
+        assert_eq!(fetched.profile_name, Some("default".to_string()));
+        assert_eq!(fetched.agent, Some("test-agent".to_string()));
+        assert_eq!(fetched.trigger, Trigger::Manual);
+        assert_eq!(fetched.status, SessionStatus::Running);
+        assert!(fetched.ended_at.is_none());
+        assert!(fetched.duration_ms.is_none());
+    }
+
+    #[test]
+    fn test_get_session_not_found() {
+        let store = Store::open_in_memory().unwrap();
+        let result = store.get_session("does-not-exist").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_complete_session() {
+        let store = Store::open_in_memory().unwrap();
+        let session = make_session("sess-002");
+        store.insert_session(&session).unwrap();
+
+        let before = store.get_session("sess-002").unwrap().unwrap();
+        assert_eq!(before.status, SessionStatus::Running);
+        assert!(before.ended_at.is_none());
+
+        store.complete_session("sess-002", SessionStatus::Stopped, None).unwrap();
+
+        let after = store.get_session("sess-002").unwrap().unwrap();
+        assert_eq!(after.status, SessionStatus::Stopped);
+        assert!(after.ended_at.is_some());
+        assert!(after.duration_ms.is_some());
+        assert!(after.duration_ms.unwrap() >= 0);
+    }
+
+    #[test]
+    fn test_complete_session_with_error() {
+        let store = Store::open_in_memory().unwrap();
+        let session = make_session("sess-003");
+        store.insert_session(&session).unwrap();
+
+        store.complete_session("sess-003", SessionStatus::Error, Some("something failed".to_string())).unwrap();
+
+        let after = store.get_session("sess-003").unwrap().unwrap();
+        assert_eq!(after.status, SessionStatus::Error);
+        assert_eq!(after.error_message, Some("something failed".to_string()));
+    }
+
+    #[test]
+    fn test_list_sessions() {
+        let store = Store::open_in_memory().unwrap();
+        for i in 0..5 {
+            let session = make_session(&format!("sess-{:03}", i));
+            store.insert_session(&session).unwrap();
+        }
+
+        let all = store.list_sessions(10, 0).unwrap();
+        assert_eq!(all.len(), 5);
+
+        let limited = store.list_sessions(3, 0).unwrap();
+        assert_eq!(limited.len(), 3);
+
+        let offset = store.list_sessions(10, 3).unwrap();
+        assert_eq!(offset.len(), 2);
+    }
+
+    #[test]
+    fn test_list_running_sessions() {
+        let store = Store::open_in_memory().unwrap();
+        for i in 0..3 {
+            let session = make_session(&format!("running-{:03}", i));
+            store.insert_session(&session).unwrap();
+        }
+        // Insert one that gets completed
+        let s = make_session("stopped-001");
+        store.insert_session(&s).unwrap();
+        store.complete_session("stopped-001", SessionStatus::Stopped, None).unwrap();
+
+        let running = store.list_running_sessions().unwrap();
+        assert_eq!(running.len(), 3);
+        for s in &running {
+            assert_eq!(s.status, SessionStatus::Running);
+        }
     }
 }

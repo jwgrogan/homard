@@ -93,3 +93,31 @@ pub struct RetryConfig {
     pub max_attempts: u32,
     pub backoff_seconds: Vec<u64>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionStatus {
+    Running,
+    Stopped,
+    Error,
+    Killed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Session {
+    pub id: String,
+    pub cli_session_id: Option<String>,
+    pub profile_name: Option<String>,
+    pub provider: String,
+    pub directory: Option<String>,
+    pub terminal_pid: Option<u32>,
+    pub trigger: Trigger,
+    pub status: SessionStatus,
+    pub started_at: DateTime<Utc>,
+    pub ended_at: Option<DateTime<Utc>>,
+    pub duration_ms: Option<i64>,
+    pub error_message: Option<String>,
+    pub agent: Option<String>,
+    pub parent_session_id: Option<String>,
+    pub forked_from: Option<String>,
+}
