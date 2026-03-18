@@ -82,6 +82,12 @@ pub fn check_all_profile_health(
 }
 
 #[tauri::command]
+pub fn delete_profile(state: State<'_, AppState>, name: String) -> Result<(), String> {
+    let manager = make_manager(&state);
+    manager.delete(&name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn detect_claude_switch() -> bool {
     std::path::Path::new("/usr/local/bin/claude-switch").exists()
         || std::path::Path::new("/opt/homebrew/bin/claude-switch").exists()

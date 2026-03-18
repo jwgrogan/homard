@@ -132,6 +132,7 @@ pub fn run() {
             commands::profile::check_profile_health,
             commands::profile::check_all_profile_health,
             commands::profile::detect_claude_switch,
+            commands::profile::delete_profile,
             // settings (legacy)
             commands::config::read_claude_settings_cmd,
             // settings (new)
@@ -170,6 +171,9 @@ pub fn run() {
             commands::telegram::generate_pairing_code_cmd,
             commands::telegram::start_telegram_polling,
             commands::telegram::stop_telegram_polling,
+            // email
+            commands::email::get_email_config,
+            commands::email::save_email_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

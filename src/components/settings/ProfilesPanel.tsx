@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { useProfilesStore } from "../../lib/store";
 
 export default function ProfilesPanel() {
-  const { profiles, loading, fetchProfiles, switchProfile, importProfile } = useProfilesStore();
+  const { profiles, loading, fetchProfiles, switchProfile, importProfile, deleteProfile } = useProfilesStore();
   const [importName, setImportName] = useState("");
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
   const [confirmSwitch, setConfirmSwitch] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     fetchProfiles();
@@ -25,6 +27,21 @@ export default function ProfilesPanel() {
       setImportError(String(e));
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function handleDelete(name: string) {
+    if (confirmDelete !== name) {
+      setConfirmDelete(name);
+      setTimeout(() => setConfirmDelete(null), 3000);
+      return;
+    }
+    setConfirmDelete(null);
+    setDeleting(name);
+    try {
+      await deleteProfile(name);
+    } finally {
+      setDeleting(null);
     }
   }
 
@@ -77,21 +94,38 @@ export default function ProfilesPanel() {
                   </span>
                 )}
               </div>
-              <button
-                onClick={() => handleSwitch(profile.name)}
-                disabled={profile.is_active || switching === profile.name}
-                className={`px-3 py-1.5 rounded text-sm disabled:opacity-40 disabled:cursor-not-allowed ${
-                  confirmSwitch === profile.name
-                    ? "bg-yellow-600 hover:bg-yellow-500"
-                    : "bg-zinc-700 hover:bg-zinc-600"
-                }`}
-              >
-                {switching === profile.name
-                  ? "Switching…"
-                  : confirmSwitch === profile.name
-                  ? "Confirm?"
-                  : "Switch"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleDelete(profile.name)}
+                  disabled={profile.is_active || deleting === profile.name}
+                  className={`px-2 py-1.5 rounded text-xs disabled:opacity-40 disabled:cursor-not-allowed ${
+                    confirmDelete === profile.name
+                      ? "bg-red-600 hover:bg-red-500 text-white"
+                      : "text-zinc-500 hover:text-red-400 hover:bg-zinc-700"
+                  }`}
+                >
+                  {deleting === profile.name
+                    ? "…"
+                    : confirmDelete === profile.name
+                    ? "Confirm?"
+                    : "Delete"}
+                </button>
+                <button
+                  onClick={() => handleSwitch(profile.name)}
+                  disabled={profile.is_active || switching === profile.name}
+                  className={`px-3 py-1.5 rounded text-sm disabled:opacity-40 disabled:cursor-not-allowed ${
+                    confirmSwitch === profile.name
+                      ? "bg-yellow-600 hover:bg-yellow-500"
+                      : "bg-zinc-700 hover:bg-zinc-600"
+                  }`}
+                >
+                  {switching === profile.name
+                    ? "Switching…"
+                    : confirmSwitch === profile.name
+                    ? "Confirm?"
+                    : "Switch"}
+                </button>
+              </div>
             </div>
           ))
         )}

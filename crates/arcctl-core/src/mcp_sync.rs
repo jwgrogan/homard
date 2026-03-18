@@ -62,10 +62,25 @@ impl McpSyncManager {
         self.load()
     }
 
-    /// Sync managed MCP servers to Claude's settings.json
+    /// Sync managed MCP servers to Claude's settings.json.
+    ///
+    /// This performs a full reconciliation:
+    ///   1. Adds/updates every server in arcctl's managed list.
+    ///   2. Removes servers that were previously synced by arcctl but are no
+    ///      longer in the managed list (tracked via a `.arcctl-managed` marker
+    ///      file next to the managed config).
     pub fn sync_to_claude(&self, claude_settings_path: &Path) -> Result<()> {
         let managed = self.load()?;
         let mut settings = ClaudeSettings::load(claude_settings_path)?;
+
+        let prev_names = self.load_synced_names();
+
+        // Remove servers that were previously synced but are no longer managed
+        for old_name in &prev_names {
+            if !managed.servers.contains_key(old_name) {
+                settings.mcp_servers.remove(old_name);
+            }
+        }
 
         // Add/update managed servers
         for (name, config) in &managed.servers {
@@ -73,7 +88,34 @@ impl McpSyncManager {
         }
 
         settings.save(claude_settings_path)?;
+
+        // Persist the set of names we just synced so future removals work
+        self.save_synced_names(&managed.servers.keys().cloned().collect::<Vec<_>>());
+
         Ok(())
+    }
+
+    // -- helpers for tracking previously-synced server names ------------------
+
+    fn synced_names_path(&self) -> PathBuf {
+        self.config_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(".arcctl-synced-mcps.json")
+    }
+
+    fn load_synced_names(&self) -> Vec<String> {
+        let path = self.synced_names_path();
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    fn save_synced_names(&self, names: &[String]) {
+        let path = self.synced_names_path();
+        let _ = serde_json::to_string(names)
+            .map(|json| std::fs::write(&path, json));
     }
 
     /// Detect if a CLI's MCP config has drifted from arcctl's managed config.
@@ -272,6 +314,43 @@ mod tests {
 
         let drifted = manager.detect_drift_claude(&claude_path).unwrap();
         assert_eq!(drifted, vec!["drifted-srv"]);
+    }
+
+    #[test]
+    fn test_sync_to_claude_removes_deleted_managed_server() {
+        let dir = TempDir::new().unwrap();
+        let mcp_path = dir.path().join("mcp-servers.json");
+        let claude_path = dir.path().join("settings.json");
+
+        // Pre-populate Claude settings with an unmanaged server
+        let mut settings = ClaudeSettings::default();
+        settings
+            .mcp_servers
+            .insert("unmanaged-srv".to_string(), make_mcp_server("unmanaged-cmd"));
+        settings.save(&claude_path).unwrap();
+
+        let manager = McpSyncManager::new(mcp_path);
+
+        // Add two managed servers and sync
+        manager
+            .add_server("srv-a".to_string(), make_mcp_server("cmd-a"))
+            .unwrap();
+        manager
+            .add_server("srv-b".to_string(), make_mcp_server("cmd-b"))
+            .unwrap();
+        manager.sync_to_claude(&claude_path).unwrap();
+
+        let reloaded = ClaudeSettings::load(&claude_path).unwrap();
+        assert_eq!(reloaded.mcp_servers.len(), 3); // unmanaged + a + b
+
+        // Now remove srv-b from managed and re-sync
+        manager.remove_server("srv-b").unwrap();
+        manager.sync_to_claude(&claude_path).unwrap();
+
+        let reloaded = ClaudeSettings::load(&claude_path).unwrap();
+        assert!(reloaded.mcp_servers.contains_key("unmanaged-srv"), "unmanaged server should be preserved");
+        assert!(reloaded.mcp_servers.contains_key("srv-a"), "still-managed server should remain");
+        assert!(!reloaded.mcp_servers.contains_key("srv-b"), "removed managed server should be deleted from Claude settings");
     }
 
     #[test]

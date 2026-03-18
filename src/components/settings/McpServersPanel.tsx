@@ -162,12 +162,27 @@ export default function McpServersPanel() {
         </div>
 
         {!showForm ? (
-          <button
-            onClick={() => setShowForm(true)}
-            className="px-3 py-1.5 rounded text-sm bg-blue-600 hover:bg-blue-500"
-          >
-            + Add Server
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowForm(true)}
+              className="px-3 py-1.5 rounded text-sm bg-blue-600 hover:bg-blue-500"
+            >
+              + Add Server
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  await api.syncAllMcps();
+                  await fetchManaged();
+                } catch (e) {
+                  setManagedError(String(e));
+                }
+              }}
+              className="px-3 py-1.5 rounded text-sm bg-zinc-700 hover:bg-zinc-600"
+            >
+              Sync Now
+            </button>
+          </div>
         ) : (
           <div className="bg-zinc-800 border border-zinc-700 rounded p-4 space-y-3">
             <h3 className="text-sm font-medium text-zinc-200">New MCP Server</h3>

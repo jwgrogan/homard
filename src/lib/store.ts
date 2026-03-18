@@ -146,6 +146,7 @@ interface ProfilesActions {
   fetchProfiles: () => Promise<void>;
   switchProfile: (name: string) => Promise<void>;
   importProfile: (name: string) => Promise<void>;
+  deleteProfile: (name: string) => Promise<void>;
 }
 
 export const useProfilesStore = create<ProfilesState & ProfilesActions>()((set, get) => ({
@@ -169,6 +170,11 @@ export const useProfilesStore = create<ProfilesState & ProfilesActions>()((set, 
 
   importProfile: async (name) => {
     await api.importProfile(name);
+    await get().fetchProfiles();
+  },
+
+  deleteProfile: async (name) => {
+    await api.deleteProfile(name);
     await get().fetchProfiles();
   },
 }));

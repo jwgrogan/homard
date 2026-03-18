@@ -25,6 +25,10 @@ export default function ProfileSwitcher() {
   const { profiles, fetchProfiles, switchProfile, importProfile } = useProfilesStore();
   const [open, setOpen] = useState(false);
   const [health, setHealth] = useState<Record<string, CredentialHealth>>({});
+  const [showImportForm, setShowImportForm] = useState(false);
+  const [importName, setImportName] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,13 +71,24 @@ export default function ProfileSwitcher() {
   const handleSwitch = async (name: string) => {
     await switchProfile(name);
     setOpen(false);
+    setShowImportForm(false);
   };
 
   const handleImport = async () => {
-    const name = prompt("Enter profile name to import:");
-    if (!name) return;
-    await importProfile(name);
-    setOpen(false);
+    const trimmed = importName.trim();
+    if (!trimmed) { setImportError("Name is required"); return; }
+    setImporting(true);
+    setImportError(null);
+    try {
+      await importProfile(trimmed);
+      setImportName("");
+      setShowImportForm(false);
+      setImportError(null);
+    } catch (e) {
+      setImportError(String(e));
+    } finally {
+      setImporting(false);
+    }
   };
 
   return (
@@ -120,13 +135,46 @@ export default function ProfileSwitcher() {
             <div className="px-3 py-2 text-xs text-zinc-500">No profiles found</div>
           )}
           <div className="border-t border-zinc-700">
-            <button
-              onClick={handleImport}
-              className="w-full text-left px-3 py-2 text-sm text-zinc-400 hover:bg-zinc-700 flex items-center gap-2"
-            >
-              <span className="text-base leading-none">+</span>
-              <span>Add profile</span>
-            </button>
+            {!showImportForm ? (
+              <button
+                onClick={() => setShowImportForm(true)}
+                className="w-full text-left px-3 py-2 text-sm text-zinc-400 hover:bg-zinc-700 flex items-center gap-2"
+              >
+                <span className="text-base leading-none">+</span>
+                <span>Add profile</span>
+              </button>
+            ) : (
+              <div className="px-3 py-2 space-y-2">
+                <input
+                  type="text"
+                  value={importName}
+                  onChange={(e) => { setImportName(e.target.value); setImportError(null); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleImport();
+                    if (e.key === "Escape") { setShowImportForm(false); setImportError(null); }
+                  }}
+                  placeholder="Profile name…"
+                  autoFocus
+                  className="w-full bg-zinc-900 border border-zinc-600 text-zinc-100 rounded px-2 py-1 text-xs placeholder-zinc-500 focus:outline-none focus:border-zinc-400"
+                />
+                {importError && <p className="text-xs text-red-400">{importError}</p>}
+                <div className="flex gap-1">
+                  <button
+                    onClick={handleImport}
+                    disabled={importing}
+                    className="px-2 py-1 rounded text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50"
+                  >
+                    {importing ? "..." : "Import"}
+                  </button>
+                  <button
+                    onClick={() => { setShowImportForm(false); setImportError(null); }}
+                    className="px-2 py-1 rounded text-xs bg-zinc-700 hover:bg-zinc-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

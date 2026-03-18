@@ -210,3 +210,17 @@ export async function startTelegramPolling(): Promise<void> {
 export async function stopTelegramPolling(): Promise<void> {
   return invoke("stop_telegram_polling");
 }
+
+// --- Email ---
+export async function getEmailConfig(): Promise<{ enabled: boolean; bot_address: string | null }> {
+  return invoke("get_email_config");
+}
+
+export async function saveEmailConfig(enabled: boolean, botAddress: string | null): Promise<void> {
+  return invoke("save_email_config", { enabled, botAddress });
+}
+
+// --- Profiles ---
+export async function deleteProfile(name: string): Promise<void> {
+  return invoke("delete_profile", { name });
+}

@@ -5,4 +5,5 @@ pub mod process;
 pub mod profile;
 pub mod scheduler;
 pub mod settings;
+pub mod email;
 pub mod telegram;

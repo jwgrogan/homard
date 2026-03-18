@@ -168,6 +168,16 @@ impl ProfileManager {
         }
     }
 
+    /// Delete a profile directory. Returns error if profile doesn't exist.
+    pub fn delete(&self, name: &str) -> Result<()> {
+        let profile_dir = self.profiles_dir.join(name);
+        if !profile_dir.exists() {
+            return Err(ArcctlError::NotFound(format!("Profile '{}' not found", name)));
+        }
+        std::fs::remove_dir_all(&profile_dir)?;
+        Ok(())
+    }
+
     /// Copy profile files back to live locations
     pub fn restore_files(&self, name: &str) -> Result<()> {
         let src_dir = self.profiles_dir.join(name);
