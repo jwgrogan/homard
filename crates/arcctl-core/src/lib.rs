@@ -8,6 +8,7 @@ pub mod keychain;
 pub mod launchd;
 pub mod process;
 pub mod profile;
+pub mod provider;
 pub mod schedule;
 pub mod settings;
 pub mod store;
