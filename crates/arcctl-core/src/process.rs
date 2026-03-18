@@ -170,6 +170,15 @@ pub async fn kill_session(mut child: Child) {
 }
 
 // ---------------------------------------------------------------------------
+// PID liveness check
+// ---------------------------------------------------------------------------
+
+/// Check if a process is still alive by sending signal 0.
+pub fn is_pid_alive(pid: u32) -> bool {
+    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -233,5 +242,17 @@ mod tests {
         registry.remove("sess-x");
         assert!(registry.list().is_empty(), "registry should be empty after remove");
         assert!(registry.get("sess-x").is_none());
+    }
+
+    #[test]
+    fn test_is_pid_alive_current_process() {
+        let pid = std::process::id();
+        assert!(is_pid_alive(pid), "current process should be alive");
+    }
+
+    #[test]
+    fn test_is_pid_alive_nonexistent() {
+        // PID 999999 is very unlikely to exist
+        assert!(!is_pid_alive(999999), "PID 999999 should not be alive");
     }
 }

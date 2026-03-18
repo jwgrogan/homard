@@ -48,6 +48,34 @@ pub fn run() {
             tray::create_tray(app)?;
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
             app.global_shortcut().register("CmdOrCtrl+Shift+C")?;
+
+            // Background task: poll PIDs of running sessions every 5 seconds
+            // and mark them as stopped when the process is no longer alive.
+            let app_handle = app.handle().clone();
+            tokio::spawn(async move {
+                use tauri::Manager;
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    if let Some(state) = app_handle.try_state::<AppState>() {
+                        if let Ok(store) = state.store.lock() {
+                            if let Ok(running) = store.list_running_sessions() {
+                                for session in running {
+                                    if let Some(pid) = session.terminal_pid {
+                                        if !arcctl_core::process::is_pid_alive(pid) {
+                                            let _ = store.complete_session(
+                                                &session.id,
+                                                arcctl_core::types::SessionStatus::Stopped,
+                                                None::<String>,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
