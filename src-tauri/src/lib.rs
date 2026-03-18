@@ -4,10 +4,8 @@ mod telegram_poller;
 mod tray;
 
 use arcctl_core::config::{ArcctlConfig, ArcctlDirs};
-use arcctl_core::process::ProcessRegistry;
 use arcctl_core::store::Store;
 use state::AppState;
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 pub fn run() {
@@ -20,12 +18,11 @@ pub fn run() {
 
     let app_state = AppState {
         store: Mutex::new(store),
-        registry: ProcessRegistry::new(),
         config: Mutex::new(config),
         dirs,
-        children: Mutex::new(HashMap::new()),
-        telegram_poll_handle: std::sync::Mutex::new(None),
-        telegram_cancel: std::sync::Mutex::new(None),
+        preferred_terminal: Mutex::new(None),
+        telegram_poll_handle: Mutex::new(None),
+        telegram_cancel: Mutex::new(None),
     };
 
     tauri::Builder::default()

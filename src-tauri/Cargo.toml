@@ -23,6 +23,7 @@ chrono = { workspace = true }
 dirs = "6"
 arcctl-core = { path = "../crates/arcctl-core" }
 tokio-util = { version = "0.7", features = ["rt"] }
+libc = "0.2"
 teloxide = { workspace = true }
 tracing = { workspace = true }
 

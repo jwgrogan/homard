@@ -177,6 +177,7 @@ dependencies = [
  "arcctl-core",
  "chrono",
  "dirs",
+ "libc",
  "serde",
  "serde_json",
  "tauri",

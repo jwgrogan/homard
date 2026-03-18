@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSessionsStore } from "../lib/store";
-import type { Run, SessionInfo } from "../lib/types";
+import type { Run, Session } from "../lib/types";
 
 function formatDuration(startedAt: string): string {
   const start = new Date(startedAt).getTime();
@@ -68,7 +68,7 @@ function TriggerBadge({ trigger }: { trigger: Run["trigger"] }) {
   );
 }
 
-function LiveSessionRow({ session }: { session: SessionInfo }) {
+function LiveSessionRow({ session }: { session: Session }) {
   const [, setTick] = useState(0);
   const { killSession } = useSessionsStore();
 
@@ -85,8 +85,8 @@ function LiveSessionRow({ session }: { session: SessionInfo }) {
           <span className="text-xs text-zinc-400">{session.agent ?? "ad-hoc"}</span>
         </div>
         <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500">
-          <span>Profile: {session.profile ?? "default"}</span>
-          <span className="truncate max-w-xs" title={session.directory}>
+          <span>Profile: {session.profile_name ?? "default"}</span>
+          <span className="truncate max-w-xs" title={session.directory ?? undefined}>
             {session.directory}
           </span>
           <span className="text-zinc-400 font-medium">

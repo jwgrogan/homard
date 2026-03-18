@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   HealthStatus,
   Profile,
-  SessionInfo,
+  Session,
   ClaudeSettings,
   McpServerConfig,
   AgentInfo,
@@ -17,7 +17,7 @@ export async function runHealthCheck(): Promise<HealthStatus> {
   return invoke("run_health_check");
 }
 
-export async function listSessions(): Promise<SessionInfo[]> {
+export async function listSessions(): Promise<Session[]> {
   return invoke("list_sessions");
 }
 
@@ -81,8 +81,8 @@ export async function importProfile(name: string): Promise<Profile> {
 }
 
 // Sessions
-export async function spawnSession(prompt: string, directory: string, profile?: string, agent?: string): Promise<SessionInfo> {
-  return invoke("spawn_session", { prompt, directory, profile, agent });
+export async function spawnSession(directory: string, provider: string, profile?: string, agent?: string, prompt?: string): Promise<Session> {
+  return invoke("spawn_session", { directory, provider, profile, agent, prompt });
 }
 
 export async function killSession(sessionId: string): Promise<void> {

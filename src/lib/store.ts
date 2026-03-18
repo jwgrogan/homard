@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as api from "./tauri";
-import type { ClaudeSettings, McpServerConfig, SessionInfo, Run, Profile, Schedule, DiscoveredPlist, TelegramStatus } from "./types";
+import type { ClaudeSettings, McpServerConfig, Session, Run, Profile, Schedule, DiscoveredPlist, TelegramStatus } from "./types";
 
 // --- Settings Store ---
 interface SettingsState {
@@ -90,7 +90,7 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()((set, 
 
 // --- Sessions Store ---
 interface SessionsState {
-  liveSessions: SessionInfo[];
+  liveSessions: Session[];
   runs: Run[];
   runsLoading: boolean;
 }
@@ -98,7 +98,7 @@ interface SessionsState {
 interface SessionsActions {
   fetchLiveSessions: () => Promise<void>;
   fetchRuns: (limit?: number, offset?: number) => Promise<void>;
-  spawnSession: (prompt: string, directory: string, profile?: string, agent?: string) => Promise<SessionInfo>;
+  spawnSession: (directory: string, provider: string, profile?: string, agent?: string, prompt?: string) => Promise<Session>;
   killSession: (sessionId: string) => Promise<void>;
 }
 
@@ -122,8 +122,8 @@ export const useSessionsStore = create<SessionsState & SessionsActions>()((set) 
     }
   },
 
-  spawnSession: async (prompt, directory, profile, agent) => {
-    const session = await api.spawnSession(prompt, directory, profile, agent);
+  spawnSession: async (directory, provider, profile, agent, prompt) => {
+    const session = await api.spawnSession(directory, provider, profile, agent, prompt);
     set((state) => ({ liveSessions: [...state.liveSessions, session] }));
     return session;
   },

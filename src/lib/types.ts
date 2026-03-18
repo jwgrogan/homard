@@ -110,6 +110,25 @@ export interface TelegramStatus {
   is_polling: boolean;
 }
 
+// --- Sessions ---
+export interface Session {
+  id: string;
+  cli_session_id: string | null;
+  profile_name: string | null;
+  provider: string;
+  directory: string | null;
+  terminal_pid: number | null;
+  trigger: "manual" | "cron" | "telegram" | "email";
+  status: "running" | "stopped" | "error" | "killed";
+  started_at: string;
+  ended_at: string | null;
+  duration_ms: number | null;
+  error_message: string | null;
+  agent: string | null;
+  parent_session_id: string | null;
+  forked_from: string | null;
+}
+
 // --- Runs ---
 export interface Run {
   id: string;

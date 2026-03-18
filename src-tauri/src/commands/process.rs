@@ -1,122 +1,108 @@
-use arcctl_core::process::{kill_session as kill_process, spawn_claude, SessionInfo};
-use arcctl_core::types::{Run, RunStatus, Trigger};
+use arcctl_core::provider::ProviderId;
+use arcctl_core::terminal::TerminalApp;
+use arcctl_core::types::{Run, Session, SessionStatus, Trigger};
 use chrono::Utc;
-use tauri::{Emitter, Manager, State};
+use std::str::FromStr;
+use tauri::State;
 use uuid::Uuid;
 
 use crate::state::AppState;
 
+fn shell_escape(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 #[tauri::command]
-pub fn list_sessions(state: State<'_, AppState>) -> Vec<SessionInfo> {
-    state.registry.list()
+pub fn list_sessions(state: State<'_, AppState>) -> Result<Vec<Session>, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store.list_sessions(100, 0).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn spawn_session(
     state: State<'_, AppState>,
-    app: tauri::AppHandle,
-    prompt: String,
     directory: String,
+    provider: String,
     profile: Option<String>,
     agent: Option<String>,
-) -> Result<SessionInfo, String> {
+    prompt: Option<String>,
+) -> Result<Session, String> {
     let session_id = Uuid::new_v4().to_string();
 
-    // Switch profile if requested (file-based restore + keychain on macOS)
-    if let Some(ref profile_name) = profile {
-        crate::commands::profile::switch_profile(state.clone(), profile_name.clone())?;
-    }
+    let provider_id = ProviderId::from_str(&provider).map_err(|e| e.to_string())?;
+    let cli_command = provider_id.cli_command();
 
-    // Spawn the claude process
-    let child = spawn_claude(&prompt, &directory, agent.as_deref(), Some("stream-json"))
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let pid = child.id();
-
-    // Build SessionInfo
-    let info = SessionInfo {
-        id: session_id.clone(),
-        agent: agent.clone(),
-        profile: profile.clone(),
-        directory: directory.clone(),
-        trigger: Trigger::Manual,
-        started_at: Utc::now(),
-        pid,
+    // Determine if we should generate a CLI session ID
+    let cli_session_id = if provider_id.supports_session_id_flag() {
+        Some(Uuid::new_v4().to_string())
+    } else {
+        None
     };
 
-    // Register in process registry
-    state.registry.register(&session_id, info.clone());
+    // Build the shell command
+    let mut parts = vec![format!("cd {}", shell_escape(&directory))];
+    let mut cmd_parts = vec![cli_command.to_string()];
 
-    // Build Run record and insert into store
-    let run = Run {
+    if let Some(ref sid) = cli_session_id {
+        cmd_parts.push("--session-id".to_string());
+        cmd_parts.push(shell_escape(sid));
+    }
+
+    if let Some(ref ag) = agent {
+        cmd_parts.push("--agent".to_string());
+        cmd_parts.push(shell_escape(ag));
+    }
+
+    if let Some(ref p) = prompt {
+        cmd_parts.push("-p".to_string());
+        cmd_parts.push(shell_escape(p));
+    }
+
+    parts.push(cmd_parts.join(" "));
+    let shell_command = parts.join(" && ");
+
+    // Determine which terminal to use
+    let terminal = {
+        let preferred = state.preferred_terminal.lock().map_err(|e| e.to_string())?;
+        if let Some(t) = preferred.clone() {
+            t
+        } else {
+            TerminalApp::detect_installed()
+                .into_iter()
+                .next()
+                .ok_or_else(|| "No terminal found".to_string())?
+        }
+    };
+
+    // Launch the terminal
+    let terminal_pid = terminal.launch(&shell_command).map_err(|e| e.to_string())?;
+
+    // Build Session record
+    let session = Session {
         id: session_id.clone(),
-        schedule_id: None,
-        agent: agent.clone(),
-        profile: profile.clone(),
-        directory: Some(directory.clone()),
+        cli_session_id,
+        profile_name: profile,
+        provider,
+        directory: Some(directory),
+        terminal_pid,
         trigger: Trigger::Manual,
-        status: RunStatus::Running,
+        status: SessionStatus::Running,
         started_at: Utc::now(),
-        finished_at: None,
+        ended_at: None,
         duration_ms: None,
         error_message: None,
-        delivery_status: None,
+        agent,
+        parent_session_id: None,
+        forked_from: None,
     };
+
+    // Insert into store
     {
         let store = state.store.lock().map_err(|e| e.to_string())?;
-        store.insert_run(&run).map_err(|e| e.to_string())?;
+        store.insert_session(&session).map_err(|e| e.to_string())?;
     }
 
-    // Store the child handle
-    {
-        let mut children = state.children.lock().map_err(|e| e.to_string())?;
-        children.insert(session_id.clone(), child);
-    }
-
-    // Take the child back out for the background streaming task
-    let child_for_task = {
-        let mut children = state.children.lock().map_err(|e| e.to_string())?;
-        children.remove(&session_id)
-    };
-
-    if let Some(child) = child_for_task {
-        let session_id_bg = session_id.clone();
-        let registry_bg = state.registry.clone();
-        let app_handle = app.clone();
-
-        tokio::spawn(async move {
-            arcctl_core::process::stream_jsonl(child, |value| {
-                let _ = app_handle.emit(
-                    &format!("session-output:{}", session_id_bg),
-                    value,
-                );
-            })
-            .await;
-
-            // After streaming ends, remove from registry
-            registry_bg.remove(&session_id_bg);
-
-            // Update run status to complete via app state
-            if let Some(state_ref) = app_handle.try_state::<AppState>() {
-                if let Ok(store) = state_ref.store.lock() {
-                    let _ = store.complete_run(
-                        &session_id_bg,
-                        RunStatus::Complete,
-                        None,
-                    );
-                }
-            }
-
-            // Emit a completion event
-            let _ = app_handle.emit(
-                &format!("session-done:{}", session_id_bg),
-                serde_json::json!({ "session_id": session_id_bg }),
-            );
-        });
-    }
-
-    Ok(info)
+    Ok(session)
 }
 
 #[tauri::command]
@@ -124,24 +110,27 @@ pub async fn kill_session(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<(), String> {
-    // Remove child handle
-    let child = {
-        let mut children = state.children.lock().map_err(|e| e.to_string())?;
-        children.remove(&session_id)
+    // Fetch the session to get the terminal_pid
+    let terminal_pid = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        store
+            .get_session(&session_id)
+            .map_err(|e| e.to_string())?
+            .and_then(|s| s.terminal_pid)
     };
 
-    if let Some(child) = child {
-        kill_process(child).await;
+    // Send SIGTERM to the terminal PID if available
+    if let Some(pid) = terminal_pid {
+        unsafe {
+            libc::kill(pid as libc::pid_t, libc::SIGTERM);
+        }
     }
 
-    // Mark run as killed in store
+    // Mark session as killed in store
     {
         let store = state.store.lock().map_err(|e| e.to_string())?;
-        let _ = store.complete_run(&session_id, RunStatus::Killed, None);
+        let _ = store.complete_session(&session_id, SessionStatus::Killed, None);
     }
-
-    // Remove from registry
-    state.registry.remove(&session_id);
 
     Ok(())
 }
