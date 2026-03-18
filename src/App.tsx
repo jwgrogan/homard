@@ -1,22 +1,15 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Health from "./pages/Health";
 import Settings from "./pages/Settings";
 import Sessions from "./pages/Sessions";
 import Scheduler from "./pages/Scheduler";
 import QuickPrompt from "./components/QuickPrompt";
-import { useProfilesStore } from "./lib/store";
+import ProfileSwitcher from "./components/ProfileSwitcher";
 
 type Page = "health" | "sessions" | "settings" | "scheduler";
 
 export default function App() {
   const [page, setPage] = useState<Page>("health");
-  const { profiles, fetchProfiles } = useProfilesStore();
-
-  useEffect(() => {
-    fetchProfiles();
-  }, []);
-
-  const activeProfile = profiles.find((p) => p.is_active) ?? null;
 
   return (
     <>
@@ -35,28 +28,7 @@ export default function App() {
             </button>
           ))}
           </div>
-          <div className="pt-4 border-t border-zinc-700">
-            <button
-              onClick={() => setPage("settings")}
-              className="w-full text-left px-3 py-2 rounded text-xs text-zinc-400 hover:bg-zinc-800"
-            >
-              <div className="flex items-center gap-2">
-                <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    activeProfile ? "bg-green-500" : "bg-zinc-600"
-                  }`}
-                />
-                <span className="truncate">
-                  {activeProfile?.name ?? "No profile"}
-                </span>
-              </div>
-              {activeProfile?.email && (
-                <div className="text-zinc-500 text-xs mt-0.5 truncate pl-4">
-                  {activeProfile.email}
-                </div>
-              )}
-            </button>
-          </div>
+          <ProfileSwitcher />
         </nav>
         <main className="flex-1 p-6 overflow-hidden">
           {page === "health" ? (
