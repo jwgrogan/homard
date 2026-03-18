@@ -42,8 +42,8 @@ export async function removePermission(scope: string, list: string, pattern: str
   return invoke("remove_permission", { scope, list, pattern, projectDir });
 }
 
-export async function setBypassPermissions(scope: string, bypass: boolean, projectDir?: string): Promise<void> {
-  return invoke("set_bypass_permissions", { scope, bypass, projectDir });
+export async function setDefaultMode(scope: string, mode: string | null, projectDir?: string): Promise<void> {
+  return invoke("set_default_mode", { scope, mode, projectDir });
 }
 
 export async function addMcpServer(scope: string, name: string, config: McpServerConfig, projectDir?: string): Promise<void> {

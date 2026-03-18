@@ -21,6 +21,8 @@ pub struct ClaudeSettings {
     pub enabled_plugins: Option<HashMap<String, bool>>,
     #[serde(default, rename = "enabledMcpjsonServers")]
     pub enabled_mcpjson_servers: Option<Vec<String>>,
+    #[serde(rename = "defaultMode", skip_serializing_if = "Option::is_none")]
+    pub default_mode: Option<String>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -31,8 +33,6 @@ pub struct PermissionsConfig {
     pub allow: Vec<String>,
     #[serde(default)]
     pub deny: Vec<String>,
-    #[serde(default, rename = "bypassPermissions")]
-    pub bypass_permissions: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,8 +120,8 @@ impl ClaudeSettings {
         self.permissions.deny.retain(|p| p != pattern);
     }
 
-    pub fn set_bypass_permissions(&mut self, bypass: bool) {
-        self.permissions.bypass_permissions = bypass;
+    pub fn set_default_mode(&mut self, mode: Option<String>) {
+        self.default_mode = mode;
     }
 
     pub fn add_mcp_server(&mut self, name: String, config: McpServerConfig) {
@@ -168,7 +168,7 @@ mod tests {
         let mut settings = ClaudeSettings::default();
         settings.add_permission_allow("Bash(*)".to_string());
         settings.add_permission_deny("Bash(rm*)".to_string());
-        settings.set_bypass_permissions(true);
+        settings.set_default_mode(Some("bypassPermissions".to_string()));
         settings.set_env_var("FOO".to_string(), "bar".to_string());
         settings.add_mcp_server("my-server".to_string(), make_mcp_server("npx"));
 
@@ -177,7 +177,7 @@ mod tests {
         let loaded = ClaudeSettings::load(&path).expect("load should succeed");
         assert_eq!(loaded.permissions.allow, vec!["Bash(*)"]);
         assert_eq!(loaded.permissions.deny, vec!["Bash(rm*)"]);
-        assert!(loaded.permissions.bypass_permissions);
+        assert_eq!(loaded.default_mode.as_deref(), Some("bypassPermissions"));
         assert_eq!(loaded.env.get("FOO").unwrap(), "bar");
         assert!(loaded.mcp_servers.contains_key("my-server"));
         let srv = loaded.mcp_servers.get("my-server").unwrap();
@@ -192,7 +192,7 @@ mod tests {
         let settings = ClaudeSettings::load(&path).expect("should return default");
         assert!(settings.permissions.allow.is_empty());
         assert!(settings.permissions.deny.is_empty());
-        assert!(!settings.permissions.bypass_permissions);
+        assert!(settings.default_mode.is_none());
         assert!(settings.env.is_empty());
         assert!(settings.mcp_servers.is_empty());
     }
@@ -256,29 +256,37 @@ mod tests {
     }
 
     #[test]
-    fn test_set_bypass_permissions() {
-        let mut s = ClaudeSettings::default();
-        assert!(!s.permissions.bypass_permissions);
-        s.set_bypass_permissions(true);
-        assert!(s.permissions.bypass_permissions);
-        s.set_bypass_permissions(false);
-        assert!(!s.permissions.bypass_permissions);
-    }
-
-    #[test]
-    fn test_bypass_permissions_camel_case_rename() {
+    fn test_default_mode_serialization() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("settings.json");
 
         let mut s = ClaudeSettings::default();
-        s.set_bypass_permissions(true);
+        s.set_default_mode(Some("bypassPermissions".to_string()));
         s.save(&path).unwrap();
 
         let json = std::fs::read_to_string(&path).unwrap();
-        assert!(json.contains("bypassPermissions"), "JSON should use camelCase key");
+        assert!(
+            json.contains("\"defaultMode\": \"bypassPermissions\""),
+            "JSON should have top-level defaultMode key"
+        );
 
         let loaded = ClaudeSettings::load(&path).unwrap();
-        assert!(loaded.permissions.bypass_permissions);
+        assert_eq!(loaded.default_mode.as_deref(), Some("bypassPermissions"));
+    }
+
+    #[test]
+    fn test_default_mode_none_omitted() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("settings.json");
+
+        let s = ClaudeSettings::default();
+        s.save(&path).unwrap();
+
+        let json = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !json.contains("defaultMode"),
+            "defaultMode should be omitted when None"
+        );
     }
 
     #[test]

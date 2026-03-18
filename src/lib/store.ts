@@ -16,7 +16,7 @@ interface SettingsActions {
   setScope: (scope: "global" | "project", projectDir?: string) => void;
   addPermission: (list: "allow" | "deny", pattern: string) => Promise<void>;
   removePermission: (list: "allow" | "deny", pattern: string) => Promise<void>;
-  setBypassPermissions: (bypass: boolean) => Promise<void>;
+  setDefaultMode: (mode: string | null) => Promise<void>;
   addMcpServer: (name: string, config: McpServerConfig) => Promise<void>;
   removeMcpServer: (name: string) => Promise<void>;
   setEnvVar: (key: string, value: string) => Promise<void>;
@@ -57,9 +57,9 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()((set, 
     await get().fetchSettings();
   },
 
-  setBypassPermissions: async (bypass) => {
+  setDefaultMode: async (mode) => {
     const { scope, projectDir } = get();
-    await api.setBypassPermissions(scope, bypass, projectDir ?? undefined);
+    await api.setDefaultMode(scope, mode, projectDir ?? undefined);
     await get().fetchSettings();
   },
 

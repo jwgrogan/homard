@@ -31,13 +31,13 @@ export interface ClaudeSettings {
   mcpServers: Record<string, McpServerConfig>;
   enabledPlugins?: Record<string, boolean>;
   enabledMcpjsonServers?: string[];
+  defaultMode?: string;
   [key: string]: unknown;
 }
 
 export interface PermissionsConfig {
   allow: string[];
   deny: string[];
-  bypassPermissions: boolean;
 }
 
 export interface McpServerConfig {

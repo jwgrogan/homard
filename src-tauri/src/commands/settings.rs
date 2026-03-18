@@ -77,13 +77,13 @@ pub fn remove_permission(
 }
 
 #[tauri::command]
-pub fn set_bypass_permissions(
+pub fn set_default_mode(
     scope: String,
-    bypass: bool,
+    mode: Option<String>,
     project_dir: Option<String>,
 ) -> Result<(), String> {
     let (mut settings, path) = load(&scope, &project_dir)?;
-    settings.set_bypass_permissions(bypass);
+    settings.set_default_mode(mode);
     settings.save(&path).map_err(|e| e.to_string())
 }
 

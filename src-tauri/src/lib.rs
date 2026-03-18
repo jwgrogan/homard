@@ -71,7 +71,7 @@ pub fn run() {
             commands::settings::get_claude_settings,
             commands::settings::add_permission,
             commands::settings::remove_permission,
-            commands::settings::set_bypass_permissions,
+            commands::settings::set_default_mode,
             commands::settings::add_mcp_server,
             commands::settings::remove_mcp_server,
             commands::settings::set_env_var,

@@ -86,8 +86,9 @@ function PermissionList({
 }
 
 export default function PermissionsPanel() {
-  const { settings, addPermission, removePermission, setBypassPermissions } = useSettingsStore();
+  const { settings, addPermission, removePermission, setDefaultMode } = useSettingsStore();
   const perms = settings?.permissions;
+  const isBypassed = settings?.defaultMode === "bypassPermissions";
 
   if (!perms) return <p className="text-zinc-400 text-sm">Loading…</p>;
 
@@ -102,19 +103,19 @@ export default function PermissionsPanel() {
             </p>
           </div>
           <button
-            onClick={() => setBypassPermissions(!perms.bypassPermissions)}
+            onClick={() => setDefaultMode(isBypassed ? null : "bypassPermissions")}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              perms.bypassPermissions ? "bg-red-600" : "bg-zinc-600"
+              isBypassed ? "bg-red-600" : "bg-zinc-600"
             }`}
           >
             <span
               className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                perms.bypassPermissions ? "translate-x-6" : "translate-x-1"
+                isBypassed ? "translate-x-6" : "translate-x-1"
               }`}
             />
           </button>
         </div>
-        {perms.bypassPermissions && (
+        {isBypassed && (
           <p className="mt-2 text-xs text-red-400">
             Warning: All permission checks are disabled. Claude can execute any tool call without confirmation.
           </p>
