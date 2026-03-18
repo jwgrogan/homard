@@ -54,14 +54,14 @@ pub fn run() {
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
             app.global_shortcut().register("CmdOrCtrl+Shift+C")?;
 
-            // Background task: poll PIDs of running sessions every 5 seconds
+            // Background thread: poll PIDs of running sessions every 5 seconds
             // and mark them as stopped when the process is no longer alive.
-            let app_handle = app.handle().clone();
-            tokio::spawn(async move {
+            let app_handle_poll = app.handle().clone();
+            std::thread::spawn(move || {
                 use tauri::Manager;
                 loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    if let Some(state) = app_handle.try_state::<AppState>() {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    if let Some(state) = app_handle_poll.try_state::<AppState>() {
                         if let Ok(store) = state.store.lock() {
                             if let Ok(running) = store.list_running_sessions() {
                                 for session in running {
