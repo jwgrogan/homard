@@ -5,10 +5,8 @@ import McpServersPanel from "../components/settings/McpServersPanel";
 import EnvVarsPanel from "../components/settings/EnvVarsPanel";
 import AgentsBrowser from "../components/settings/AgentsBrowser";
 import ProfilesPanel from "../components/settings/ProfilesPanel";
-import { TelegramPanel } from "../components/settings/TelegramPanel";
-import { EmailPanel } from "../components/settings/EmailPanel";
 
-const TABS = ["permissions", "mcp", "env", "agents", "profiles", "telegram", "email"] as const;
+const TABS = ["permissions", "mcp", "env", "agents", "profiles"] as const;
 type Tab = (typeof TABS)[number];
 
 const TAB_LABELS: Record<Tab, string> = {
@@ -17,8 +15,6 @@ const TAB_LABELS: Record<Tab, string> = {
   env: "Env Vars",
   agents: "Agents",
   profiles: "Profiles",
-  telegram: "Telegram",
-  email: "Email",
 };
 
 export default function Settings() {
@@ -58,8 +54,6 @@ export default function Settings() {
         {tab === "env" && <EnvVarsPanel />}
         {tab === "agents" && <AgentsBrowser />}
         {tab === "profiles" && <ProfilesPanel />}
-        {tab === "telegram" && <TelegramPanel />}
-        {tab === "email" && <EmailPanel />}
       </div>
     </div>
   );
