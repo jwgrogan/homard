@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "src-tauri",
-    "crates/arcctl-core",
+    "crates/homard-core",
     "cli",
 ]
 resolver = "2"

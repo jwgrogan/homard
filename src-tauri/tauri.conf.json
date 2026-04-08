@@ -1,7 +1,7 @@
 {
-  "productName": "arcctl",
+  "productName": "Homard",
   "version": "0.1.0",
-  "identifier": "com.arcctl.app",
+  "identifier": "com.homard.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,11 +12,13 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "arcctl",
-        "width": 900,
-        "height": 600,
+        "title": "Homard",
+        "width": 420,
+        "height": 520,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true
       }
     ],
     "security": {

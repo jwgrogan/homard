@@ -1,16 +1,19 @@
 [package]
-name = "arcctl-cli"
+name = "homard-cli"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "arcctl"
+name = "homard"
 path = "src/main.rs"
 
 [dependencies]
-arcctl-core = { path = "../crates/arcctl-core" }
+homard-core = { path = "../crates/homard-core" }
 clap = { version = "4", features = ["derive"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = "0.3"
 anyhow = "1"
+reqwest = { version = "0.12", features = ["json"] }
+serde_json = { workspace = true }
+dirs = "6"

@@ -2,37 +2,42 @@
 
 ## Project Overview
 
-arcctl (Agent Run Control) — a macOS menu bar assistant that wraps Claude Code CLI, providing session management, settings GUI, autonomous scheduling via launchd, and messaging bridges (Telegram, email).
+Homard — a lightweight macOS personal AI assistant. Always-on daemon with Tauri tray app, Telegram bridge, and ReAct agent loop. Supports OpenAI OAuth PKCE and Anthropic OAuth for LLM providers.
 
 ## Architecture
 
-Cargo workspace with three crates sharing a core library:
-- `crates/arcctl-core/` — Shared Rust library (config, store, profiles, process management, launchd)
-- `src-tauri/` — Tauri 2 GUI app (system tray, IPC commands, React frontend)
-- `cli/` — CLI binary (`arcctl run-job`, `arcctl status`, `arcctl switch`)
+Cargo workspace with three crates:
+- `crates/homard-core/` — Core library (agent loop, LLM client, tools, security, REST API, Telegram, scheduler)
+- `src-tauri/` — Thin Tauri 2 tray app (just tray icon + React webview, no business logic)
+- `cli/` — CLI binary (`homard serve`, `homard chat`, `homard status`, `homard stop`, `homard install`)
 
-Frontend: React 18 + TypeScript + Vite + Tailwind CSS 4
+Two-binary split: daemon (`homard serve`) runs agent + API on localhost:17700, tray app talks to it via REST.
+
+Frontend: React 19 + TypeScript + Vite + Tailwind CSS 4 (light mode only, coastal palette)
 
 ## Build & Test Commands
 
 ```bash
 cargo build                    # Build all Rust crates
 cargo test                     # Run all Rust tests
-cargo tauri dev                # Launch Tauri app in dev mode
+cargo tauri dev                # Launch Tauri tray app in dev mode
 npm run dev                    # Frontend dev server only
 npm run build                  # Build frontend for production
 cargo tauri build              # Build production app bundle
+./target/debug/homard serve    # Start daemon directly
+./target/debug/homard chat     # Interactive CLI chat
 ```
 
 ## Key Directories
 
-- `~/.arcctl/` — App data (config, profiles, schedules, logs, SQLite DB)
-- `~/.claude/` — Claude Code config (settings.json, agents/, commands/)
-- `~/Library/LaunchAgents/com.arcctl.job.*.plist` — Scheduled job plists
+- `~/.homard/` — App data (config, identity files, schedules, logs, SQLite DB)
+- `~/.homard/*.md` — Identity files (SOUL.md, USER.md, MEMORY.md, AGENTS.md, TOOLS.md, HEARTBEAT.md, IDENTITY.md, BOOTSTRAP.md)
+- `~/Library/LaunchAgents/com.homard.daemon.plist` — Always-on daemon plist
 
 ## Code Conventions
 
 - Rust: standard formatting (rustfmt), clippy clean
 - TypeScript: strict mode
-- All secrets stored in macOS Keychain via security CLI
+- All secrets stored in macOS Keychain via security-framework crate
 - Config files are JSON on disk
+- Identity files are Markdown
