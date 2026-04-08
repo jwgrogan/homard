@@ -140,20 +140,14 @@ pub async fn start_auth(
     State(state): State<AppState>,
     Path(provider): Path<String>,
 ) -> std::result::Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (auth_url, verifier, port) = state.oauth.start_auth(&provider).await
+    let (auth_url, _port) = state.oauth.start_auth(&provider).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(serde_json::json!({
-        "auth_url": auth_url,
-        "verifier": verifier,
-        "port": port,
-    })))
+    Ok(Json(serde_json::json!({ "auth_url": auth_url })))
 }
 
 #[derive(Deserialize)]
 pub struct AuthCallbackQuery {
     pub code: String,
-    pub verifier: Option<String>,
-    pub port: Option<u16>,
 }
 
 pub async fn auth_callback(
@@ -161,9 +155,9 @@ pub async fn auth_callback(
     Path(provider): Path<String>,
     Query(query): Query<AuthCallbackQuery>,
 ) -> std::result::Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let verifier = query.verifier.unwrap_or_default();
-    let port = query.port.unwrap_or(0);
-    let tokens = state.oauth.exchange_code(&provider, &query.code, &verifier, port).await
+    let verifier = state.oauth.take_verifier(&provider).await
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "No pending auth flow".to_string()))?;
+    let tokens = state.oauth.exchange_code(&provider, &query.code, &verifier, 17700).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(serde_json::json!({"status": "connected", "expires_at": tokens.expires_at})))
 }

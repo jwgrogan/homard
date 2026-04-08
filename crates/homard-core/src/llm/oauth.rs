@@ -19,6 +19,7 @@ pub struct OAuthProviderConfig {
 
 pub struct OAuthManager {
     tokens: RwLock<HashMap<String, OAuthTokens>>,
+    pending_verifiers: RwLock<HashMap<String, String>>,
     providers: HashMap<String, OAuthProviderConfig>,
     http: reqwest::Client,
 }
@@ -41,6 +42,7 @@ impl OAuthManager {
 
         Self {
             tokens: RwLock::new(HashMap::new()),
+            pending_verifiers: RwLock::new(HashMap::new()),
             providers,
             http: reqwest::Client::new(),
         }
@@ -65,20 +67,14 @@ impl OAuthManager {
         (verifier, challenge)
     }
 
-    /// Start OAuth flow: returns (auth_url, code_verifier, local_port)
-    pub async fn start_auth(&self, provider_name: &str) -> Result<(String, String, u16)> {
+    /// Start OAuth flow: returns (auth_url, callback_port)
+    pub async fn start_auth(&self, provider_name: &str) -> Result<(String, u16)> {
         let provider = self.providers.get(provider_name)
             .ok_or_else(|| HomardError::OAuth(format!("Unknown provider: {}", provider_name)))?;
 
         let (verifier, challenge) = Self::generate_pkce();
-
-        // Bind to an ephemeral port
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await
-            .map_err(|e| HomardError::OAuth(e.to_string()))?;
-        let port = listener.local_addr()
-            .map_err(|e| HomardError::OAuth(e.to_string()))?.port();
-
-        let redirect_uri = format!("http://127.0.0.1:{}/callback", port);
+        let port = 17700; // Use the daemon's own API port for the callback
+        let redirect_uri = format!("http://127.0.0.1:{}/auth/{}/callback", port, provider_name);
 
         let auth_url = format!(
             "{}?client_id={}&redirect_uri={}&response_type=code&scope={}&code_challenge={}&code_challenge_method=S256",
@@ -89,10 +85,15 @@ impl OAuthManager {
             challenge,
         );
 
-        // Drop the listener so the port is free for the callback server
-        drop(listener);
+        // Store verifier server-side
+        self.pending_verifiers.write().await.insert(provider_name.to_string(), verifier);
 
-        Ok((auth_url, verifier, port))
+        Ok((auth_url, port))
+    }
+
+    /// Retrieve and consume a pending PKCE verifier for a provider
+    pub async fn take_verifier(&self, provider_name: &str) -> Option<String> {
+        self.pending_verifiers.write().await.remove(provider_name)
     }
 
     /// Exchange authorization code for tokens

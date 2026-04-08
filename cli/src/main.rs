@@ -37,6 +37,19 @@ async fn main() -> anyhow::Result<()> {
             let dirs = homard_core::config::HomardDirs::default_path();
             dirs.ensure_all()?;
 
+            // Copy default identity files if not present
+            let defaults_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../defaults");
+            let identity_files = ["BOOTSTRAP.md", "SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md", "TOOLS.md", "HEARTBEAT.md", "MEMORY.md"];
+            for filename in &identity_files {
+                let target = dirs.root().join(filename);
+                if !target.exists() {
+                    let source = defaults_dir.join(filename);
+                    if source.exists() {
+                        let _ = std::fs::copy(&source, &target);
+                    }
+                }
+            }
+
             let config = homard_core::config::HomardConfig::load_or_default(&dirs.config_path());
             let store = Arc::new(tokio::sync::Mutex::new(
                 homard_core::store::Store::open(&dirs.db_path())?,
@@ -86,6 +99,29 @@ async fn main() -> anyhow::Result<()> {
             );
             // Register shell tools from config
             tools.register_shell_tools(&config.shell_tools);
+            // Register memory tools (need store reference)
+            {
+                let store_clone = store.clone();
+                tools.register(homard_core::tools::memory::save_schema(), move |args| {
+                    let s = store_clone.clone();
+                    async move { homard_core::tools::memory::save(args, s).await }
+                });
+            }
+            {
+                let store_clone = store.clone();
+                tools.register(homard_core::tools::memory::search_schema(), move |args| {
+                    let s = store_clone.clone();
+                    async move { homard_core::tools::memory::search(args, s).await }
+                });
+            }
+            // Register user profile tool (needs homard dir)
+            {
+                let homard_dir = dirs.root().to_path_buf();
+                tools.register(homard_core::tools::user_profile::schema(), move |args| {
+                    let dir = homard_dir.clone();
+                    async move { homard_core::tools::user_profile::execute(args, dir).await }
+                });
+            }
             let tools = Arc::new(tools);
 
             // Stop signal

@@ -48,6 +48,14 @@ function ProviderCard({ name, status }: { name: string; status: DaemonStatus | n
 
 function PermissionsPanel() {
   const [level, setLevel] = useState("supervised");
+  useEffect(() => {
+    fetch("http://localhost:17700/settings/permissions")
+      .then(res => res.json())
+      .then(data => {
+        if (typeof data === "string") setLevel(data);
+      })
+      .catch(() => {});
+  }, []);
 
   const levels = [
     { id: "supervised", label: "Supervised", desc: "Approve dangerous actions" },

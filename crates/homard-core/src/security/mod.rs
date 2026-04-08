@@ -22,7 +22,7 @@ impl SecurityManager {
         *self.level.write().await = level;
     }
 
-    pub async fn check_tool(&self, tool_name: &str, _arguments: &serde_json::Value) -> bool {
+    pub async fn check_tool(&self, tool_name: &str, arguments: &serde_json::Value) -> bool {
         let level = self.level.read().await;
         match *level {
             PermissionLevel::Locked => {
@@ -34,7 +34,16 @@ impl SecurityManager {
                 // For v1, auto-approve everything except shell_exec with dangerous patterns.
                 // Full approval flow (Telegram inline keyboard) is a v2 feature.
                 if tool_name == "shell_exec" {
-                    return !sandbox::is_blocked(_arguments);
+                    if sandbox::is_blocked(arguments) {
+                        return false;
+                    }
+                    // In supervised mode, confirm patterns need approval
+                    // For v1, we auto-approve (full approval flow is v2)
+                    // but we log them for audit
+                    if sandbox::needs_confirmation(arguments) {
+                        tracing::warn!("Shell command needs confirmation (auto-approving in v1): {:?}", arguments);
+                    }
+                    return true;
                 }
                 true
             }

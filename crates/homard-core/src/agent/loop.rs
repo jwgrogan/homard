@@ -143,7 +143,11 @@ impl AgentLoop {
                     tool_calls: Some(response.tool_calls.clone()),
                     timestamp: Some(chrono::Utc::now()),
                 };
-                messages.push(assistant_msg);
+                messages.push(assistant_msg.clone());
+                {
+                    let store = self.store.lock().await;
+                    store.save_message(channel, &assistant_msg)?;
+                }
 
                 // Execute tools in parallel
                 let mut tool_futures = Vec::new();
@@ -173,7 +177,11 @@ impl AgentLoop {
                         tool_calls: None,
                         timestamp: None,
                     };
-                    messages.push(tool_msg);
+                    messages.push(tool_msg.clone());
+                    {
+                        let store = self.store.lock().await;
+                        store.save_message(channel, &tool_msg)?;
+                    }
                 }
 
                 hang_detector.record_tool_calls(&response.tool_calls);
@@ -186,9 +194,9 @@ impl AgentLoop {
         };
 
         // Complete the run
-        let (status, error_msg, final_text) = match result {
-            Ok(text) => (RunStatus::Complete, None, text),
-            Err(e) => (RunStatus::Error, Some(e.to_string()), format!("Error: {}", e)),
+        let (status, error_msg) = match &result {
+            Ok(_) => (RunStatus::Complete, None),
+            Err(e) => (RunStatus::Error, Some(e.to_string())),
         };
 
         {
@@ -196,6 +204,6 @@ impl AgentLoop {
             store.complete_run(&run_id, status, error_msg.as_deref(), iterations)?;
         }
 
-        Ok(final_text)
+        result
     }
 }

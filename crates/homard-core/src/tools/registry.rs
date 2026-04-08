@@ -46,7 +46,12 @@ impl ToolRegistry {
         if output.len() <= max {
             output.to_string()
         } else {
-            format!("{}...[truncated]", &output[..max])
+            // Find a safe UTF-8 boundary
+            let mut end = max;
+            while end > 0 && !output.is_char_boundary(end) {
+                end -= 1;
+            }
+            format!("{}...[truncated]", &output[..end])
         }
     }
 

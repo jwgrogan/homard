@@ -97,7 +97,11 @@ impl Store {
             let tool_calls_str: Option<String> = row.get(3)?;
             let tool_calls = tool_calls_str.and_then(|s| serde_json::from_str(&s).ok());
             let ts: Option<String> = row.get(4)?;
-            let timestamp = ts.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&chrono::Utc)));
+            let timestamp = ts.and_then(|s| {
+                chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S").ok()
+                    .map(|naive| naive.and_utc())
+                    .or_else(|| chrono::DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&chrono::Utc)))
+            });
             Ok(ChatMessage {
                 role: row.get(0)?,
                 content: row.get(1)?,

@@ -21,11 +21,36 @@ impl AnthropicProvider {
             .map(|m| m.content.clone())
             .unwrap_or_default();
 
-        // Convert messages to Anthropic format
-        let msgs: Vec<serde_json::Value> = messages.iter()
+        // Convert messages, merging consecutive tool results into single user messages
+        let mut msgs: Vec<serde_json::Value> = Vec::new();
+        let non_system: Vec<&ChatMessage> = messages.iter()
             .filter(|m| m.role != "system")
-            .map(|m| Self::adapt_message(m))
             .collect();
+
+        let mut i = 0;
+        while i < non_system.len() {
+            let m = non_system[i];
+            if m.role == "tool" {
+                // Collect all consecutive tool results into one user message
+                let mut content_blocks = Vec::new();
+                while i < non_system.len() && non_system[i].role == "tool" {
+                    let tool_msg = non_system[i];
+                    content_blocks.push(serde_json::json!({
+                        "type": "tool_result",
+                        "tool_use_id": tool_msg.tool_call_id.as_deref().unwrap_or(""),
+                        "content": tool_msg.content,
+                    }));
+                    i += 1;
+                }
+                msgs.push(serde_json::json!({
+                    "role": "user",
+                    "content": content_blocks,
+                }));
+            } else {
+                msgs.push(Self::adapt_message(m));
+                i += 1;
+            }
+        }
 
         // Convert tools to Anthropic format
         let tool_defs: Vec<serde_json::Value> = tools.iter().map(|t| {

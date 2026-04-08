@@ -106,7 +106,7 @@ export default function Chat() {
           </div>
         )}
         {messages.map((msg, i) => (
-          <MessageBubble key={i} msg={msg} />
+          <MessageBubble key={`${msg.role}-${msg.timestamp || i}`} msg={msg} />
         ))}
         {loading && (
           <div className="flex justify-start mb-3">
