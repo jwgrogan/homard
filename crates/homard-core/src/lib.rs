@@ -8,6 +8,7 @@ pub mod schedule;
 pub mod store;
 pub mod telegram;
 pub mod terminal;
+pub mod scheduler;
 pub mod types;
 
 pub mod agent;

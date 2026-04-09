@@ -177,6 +177,106 @@ pub async fn telegram_status(State(state): State<AppState>) -> Json<serde_json::
     }))
 }
 
+pub async fn get_server_mode(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let config = state.config.read().await;
+    let home = dirs::home_dir().unwrap_or_default();
+    let plist_exists = home.join("Library/LaunchAgents/com.homard.daemon.plist").exists();
+    Json(serde_json::json!({
+        "mode": config.server_mode,
+        "launchd_installed": plist_exists,
+    }))
+}
+
+pub async fn set_server_mode(
+    State(state): State<AppState>,
+    Json(req): Json<serde_json::Value>,
+) -> std::result::Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mode = req.get("mode").and_then(|m| m.as_str()).unwrap_or("off");
+    let dirs = crate::config::HomardDirs::default_path();
+
+    let mut config = state.config.write().await;
+
+    if mode == "on" {
+        config.server_mode = crate::types::ServerMode::On;
+        config.save(&dirs.config_path()).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        // Install launchd plist
+        let bin_path = crate::schedule::resolve_homard_bin().unwrap_or_else(|_| "homard".to_string());
+        let home = dirs::home_dir().unwrap_or_default();
+        let uid = std::process::Command::new("id")
+            .arg("-u")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| "501".to_string());
+        let plist_content = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.homard.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{}</string>
+        <string>serve</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>{}/.homard/logs/daemon.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>{}/.homard/logs/daemon.stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>"#,
+            bin_path, home.display(), home.display(),
+        );
+
+        let plist_path = home.join("Library/LaunchAgents/com.homard.daemon.plist");
+        std::fs::create_dir_all(plist_path.parent().unwrap()).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        std::fs::write(&plist_path, plist_content).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        // Bootstrap the plist (modern launchctl)
+        let _ = std::process::Command::new("launchctl")
+            .args(["bootstrap", &format!("gui/{}", uid), &plist_path.to_string_lossy()])
+            .output();
+
+        Ok(Json(serde_json::json!({"status": "on", "message": "Server mode enabled. Homard will restart on crash and start on boot."})))
+    } else {
+        config.server_mode = crate::types::ServerMode::Off;
+        config.save(&dirs.config_path()).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        // Remove launchd plist
+        let home = dirs::home_dir().unwrap_or_default();
+        let plist_path = home.join("Library/LaunchAgents/com.homard.daemon.plist");
+        if plist_path.exists() {
+            let uid = std::process::Command::new("id")
+                .arg("-u")
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| "501".to_string());
+            let _ = std::process::Command::new("launchctl")
+                .args(["bootout", &format!("gui/{}", uid), &plist_path.to_string_lossy()])
+                .output();
+            let _ = std::fs::remove_file(&plist_path);
+        }
+
+        Ok(Json(serde_json::json!({"status": "off", "message": "Server mode disabled. Daemon will stop when you close it."})))
+    }
+}
+
 pub async fn read_file(
     State(state): State<AppState>,
     Path(name): Path<String>,

@@ -45,6 +45,32 @@ pub async fn save(args: serde_json::Value, store: Arc<tokio::sync::Mutex<Store>>
     Ok(format!("Saved to memory: {}", fact))
 }
 
+pub fn maintain_schema() -> ToolSchema {
+    ToolSchema {
+        name: "maintain_memory".to_string(),
+        description: "Reorganize and prune MEMORY.md when it gets too long. Summarize old entries, remove duplicates.".to_string(),
+        parameters: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "updated_content": { "type": "string", "description": "The reorganized MEMORY.md content" }
+            },
+            "required": ["updated_content"]
+        }),
+    }
+}
+
+pub async fn maintain(args: serde_json::Value, homard_dir: std::path::PathBuf) -> Result<String> {
+    let content = args.get("updated_content")
+        .and_then(|c| c.as_str())
+        .ok_or_else(|| HomardError::Tool("Missing 'updated_content' argument".to_string()))?;
+
+    let path = homard_dir.join("MEMORY.md");
+    tokio::fs::write(&path, content).await
+        .map_err(|e| HomardError::Tool(format!("Failed to write MEMORY.md: {}", e)))?;
+
+    Ok("MEMORY.md updated".to_string())
+}
+
 pub async fn search(args: serde_json::Value, store: Arc<tokio::sync::Mutex<Store>>) -> Result<String> {
     let query = args.get("query")
         .and_then(|q| q.as_str())

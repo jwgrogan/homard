@@ -114,3 +114,14 @@ pub struct DaemonStatus {
     pub telegram_connected: bool,
     pub current_run: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ServerMode {
+    On,
+    Off,
+}
+
+impl Default for ServerMode {
+    fn default() -> Self { Self::Off }
+}

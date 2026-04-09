@@ -1,5 +1,18 @@
+use std::sync::OnceLock;
 use crate::types::ToolSchema;
 use crate::error::{HomardError, Result};
+
+static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn get_client() -> &'static reqwest::Client {
+    HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .user_agent("Homard/1.0")
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("failed to build HTTP client")
+    })
+}
 
 pub fn search_schema() -> ToolSchema {
     ToolSchema {
@@ -36,9 +49,8 @@ pub async fn search(args: serde_json::Value) -> Result<String> {
 
     // Use DuckDuckGo HTML for simplicity (no API key needed)
     let url = format!("https://html.duckduckgo.com/html/?q={}", urlencoding::encode(query));
-    let client = reqwest::Client::new();
+    let client = get_client();
     let resp = client.get(&url)
-        .header("User-Agent", "Homard/1.0")
         .send()
         .await
         .map_err(|e| HomardError::Tool(e.to_string()))?;
@@ -78,9 +90,8 @@ pub async fn fetch(args: serde_json::Value) -> Result<String> {
         .and_then(|u| u.as_str())
         .ok_or_else(|| HomardError::Tool("Missing 'url' argument".to_string()))?;
 
-    let client = reqwest::Client::new();
+    let client = get_client();
     let resp = client.get(url)
-        .header("User-Agent", "Homard/1.0")
         .send()
         .await
         .map_err(|e| HomardError::Tool(e.to_string()))?;

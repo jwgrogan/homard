@@ -35,6 +35,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/auth/{provider}/callback", get(routes::auth_callback))
         .route("/telegram/pair", post(routes::telegram_pair))
         .route("/telegram/status", get(routes::telegram_status))
+        .route("/server", get(routes::get_server_mode).put(routes::set_server_mode))
         .route("/files/{name}", get(routes::read_file).put(routes::write_file))
         .with_state(state)
 }

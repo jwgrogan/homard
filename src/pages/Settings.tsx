@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getStatus, setPermissions, startAuth, generatePairingCode, getTelegramStatus, readFile, writeFile, type DaemonStatus } from "../lib/api";
 
-type SettingsTab = "providers" | "permissions" | "telegram" | "identity";
+type SettingsTab = "providers" | "permissions" | "telegram" | "identity" | "daemon";
 
 function ProviderCard({ name, status }: { name: string; status: DaemonStatus | null }) {
   const isActive = status?.active_provider === name;
@@ -134,6 +134,101 @@ function TelegramPanel() {
   );
 }
 
+function DaemonPanel() {
+  const [serverMode, setServerMode] = useState<string>("off");
+  const [launchdInstalled, setLaunchdInstalled] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    fetch("http://localhost:17700/server")
+      .then(res => res.json())
+      .then(data => {
+        setServerMode(data.mode || "off");
+        setLaunchdInstalled(data.launchd_installed || false);
+      })
+      .catch(() => {});
+  }, []);
+
+  const toggleServer = async () => {
+    setLoading(true);
+    setMessage("");
+    const newMode = serverMode === "on" ? "off" : "on";
+    try {
+      const res = await fetch("http://localhost:17700/server", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: newMode }),
+      });
+      const data = await res.json();
+      setServerMode(data.status || newMode);
+      setMessage(data.message || "");
+      setLaunchdInstalled(data.status === "on");
+    } catch {
+      setMessage("Failed to toggle server mode");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div
+        className="px-3 py-3 rounded-xl"
+        style={{ background: "var(--cream-card)", border: "1px solid var(--border)" }}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-medium" style={{ color: "var(--navy)" }}>
+              Server Mode
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: "var(--navy-muted)" }}>
+              {serverMode === "on"
+                ? "Homard restarts on crash, starts on boot"
+                : "Daemon stops when you close it"}
+            </div>
+          </div>
+          <button
+            onClick={toggleServer}
+            disabled={loading}
+            className="relative w-12 h-6 rounded-full transition-colors"
+            style={{
+              background: serverMode === "on" ? "var(--coral)" : "var(--border)",
+            }}
+          >
+            <span
+              className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform"
+              style={{
+                left: serverMode === "on" ? "calc(100% - 22px)" : "2px",
+              }}
+            />
+          </button>
+        </div>
+      </div>
+
+      {message && (
+        <div
+          className="px-3 py-2 rounded-xl text-xs"
+          style={{ background: "var(--sage)", color: "var(--navy)" }}
+        >
+          {message}
+        </div>
+      )}
+
+      <div
+        className="px-3 py-3 rounded-xl"
+        style={{ background: "var(--cream-card)", border: "1px solid var(--border)" }}
+      >
+        <div className="text-sm font-medium" style={{ color: "var(--navy)" }}>Status</div>
+        <div className="text-xs mt-1 space-y-1" style={{ color: "var(--navy-muted)" }}>
+          <div>launchd plist: {launchdInstalled ? "installed" : "not installed"}</div>
+          <div>Daemon: running (you're seeing this page)</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function IdentityPanel() {
   const files = ["SOUL.md", "AGENTS.md", "TOOLS.md", "HEARTBEAT.md", "USER.md", "MEMORY.md"];
   const [selected, setSelected] = useState("SOUL.md");
@@ -203,6 +298,7 @@ export default function Settings() {
     { id: "permissions", label: "Permissions" },
     { id: "telegram", label: "Telegram" },
     { id: "identity", label: "Identity" },
+    { id: "daemon", label: "Daemon" },
   ];
 
   return (
@@ -244,6 +340,7 @@ export default function Settings() {
         {tab === "permissions" && <PermissionsPanel />}
         {tab === "telegram" && <TelegramPanel />}
         {tab === "identity" && <IdentityPanel />}
+        {tab === "daemon" && <DaemonPanel />}
       </div>
 
       {/* Daemon status footer */}

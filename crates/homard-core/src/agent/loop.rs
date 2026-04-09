@@ -158,18 +158,26 @@ impl AgentLoop {
                     tool_futures.push(async move {
                         // Check security
                         let approved = security.check_tool(&tc_clone.name, &tc_clone.arguments).await;
+                        let args_str = tc_clone.arguments.to_string();
                         if !approved {
-                            return (tc_clone.id.clone(), "Tool execution denied by security policy".to_string());
+                            return (tc_clone.id.clone(), tc_clone.name.clone(), args_str, "Tool execution denied by security policy".to_string(), false);
                         }
                         let result = tools.execute(&tc_clone.name, &tc_clone.arguments).await;
-                        (tc_clone.id.clone(), result.unwrap_or_else(|e| format!("Error: {}", e)))
+                        (tc_clone.id.clone(), tc_clone.name.clone(), args_str, result.unwrap_or_else(|e| format!("Error: {}", e)), true)
                     });
                 }
 
                 let results = futures::future::join_all(tool_futures).await;
 
                 // Add tool result messages
-                for (tool_call_id, result) in results {
+                for (_tool_call_id, tool_name, tool_args, result, approved) in &results {
+                    // Audit log
+                    {
+                        let store = self.store.lock().await;
+                        let _ = store.log_audit(tool_name, Some(tool_args), Some(result), *approved);
+                    }
+                }
+                for (tool_call_id, _tool_name, _tool_args, result, _approved) in results {
                     let tool_msg = ChatMessage {
                         role: "tool".to_string(),
                         content: result,

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::error::HomardError;
-use crate::types::{PermissionLevel, ProviderConfig, ShellTool};
+use crate::types::{PermissionLevel, ProviderConfig, ServerMode, ShellTool};
 
 // ---------------------------------------------------------------------------
 // Config structs
@@ -87,6 +87,8 @@ pub struct HomardConfig {
     pub shell_tools: Vec<ShellTool>,
     #[serde(default)]
     pub bootstrapped: bool,
+    #[serde(default)]
+    pub server_mode: ServerMode,
 }
 
 fn default_active_provider() -> String {
@@ -105,6 +107,7 @@ impl Default for HomardConfig {
             permission_level: PermissionLevel::default(),
             shell_tools: Vec::new(),
             bootstrapped: false,
+            server_mode: ServerMode::default(),
         }
     }
 }

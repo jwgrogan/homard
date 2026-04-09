@@ -122,3 +122,17 @@ export async function writeFile(name: string, content: string): Promise<void> {
     body: content,
   });
 }
+
+export async function getServerMode(): Promise<{ mode: string; launchd_installed: boolean }> {
+  const res = await fetch(`${BASE}/server`);
+  return res.json();
+}
+
+export async function setServerMode(mode: "on" | "off"): Promise<{ status: string; message: string }> {
+  const res = await fetch(`${BASE}/server`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode }),
+  });
+  return res.json();
+}

@@ -141,6 +141,50 @@ async fn main() -> anyhow::Result<()> {
                 stop_rx,
             ));
 
+            // Start Telegram poller
+            let telegram_client = {
+                #[cfg(target_os = "macos")]
+                {
+                    match homard_core::config::get_telegram_token(&dirs) {
+                        Ok(Some(token)) => {
+                            let client = Arc::new(homard_core::telegram::TelegramClient::new(&token));
+                            let poller_dirs = dirs.clone();
+                            let poller_agent = agent.clone();
+                            let poller_client = client.clone();
+                            let poller_cancel = tokio_util::sync::CancellationToken::new();
+                            let poller_stop = stop_tx.clone();
+                            let cancel_clone = poller_cancel.clone();
+
+                            tokio::spawn(async move {
+                                homard_core::telegram::poller::run_poller(
+                                    poller_dirs, poller_agent, poller_client, cancel_clone, poller_stop,
+                                ).await;
+                            });
+
+                            Some(client)
+                        }
+                        _ => None,
+                    }
+                }
+                #[cfg(not(target_os = "macos"))]
+                { None::<Arc<homard_core::telegram::TelegramClient>> }
+            };
+
+            // Start cron scheduler
+            {
+                let sched_dirs = dirs.clone();
+                let sched_agent = agent.clone();
+                let sched_tg = telegram_client.clone();
+                let sched_cancel = tokio_util::sync::CancellationToken::new();
+                let cancel_clone = sched_cancel.clone();
+
+                tokio::spawn(async move {
+                    homard_core::scheduler::cron::run_scheduler(
+                        sched_dirs, sched_agent, sched_tg, cancel_clone,
+                    ).await;
+                });
+            }
+
             // Create API state
             let api_state = homard_core::api::AppState {
                 agent: agent.clone(),

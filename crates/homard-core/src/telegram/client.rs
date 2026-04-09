@@ -110,6 +110,11 @@ impl TelegramClient {
         }
         Err(last_err)
     }
+
+    /// Get the inner bot reference (for direct API calls like getUpdates).
+    pub fn bot(&self) -> &teloxide::Bot {
+        &self.bot
+    }
 }
 
 /// Handles streaming preview: sends initial "running" message, then edits it in-place
