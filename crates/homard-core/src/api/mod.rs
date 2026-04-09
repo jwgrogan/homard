@@ -1,7 +1,8 @@
 pub mod routes;
 
 use std::sync::Arc;
-use axum::{Router, routing::{get, post, delete}};
+use axum::{Router, routing::{get, post, put, delete}};
+use tower_http::cors::{CorsLayer, Any};
 use crate::agent::r#loop::AgentLoop;
 use crate::store::Store;
 use crate::config::HomardConfig;
@@ -40,6 +41,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/sessions", get(routes::list_cli_sessions))
         .route("/sessions/{id}", delete(routes::kill_cli_session))
         .route("/files/{name}", get(routes::read_file).put(routes::write_file))
+        .layer(CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any))
         .with_state(state)
 }
 

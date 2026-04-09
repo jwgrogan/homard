@@ -20,6 +20,7 @@ regex-lite = "0.1"
 rand = "0.8"
 reqwest = { version = "0.12", features = ["json"] }
 axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
 sha2 = "0.10"
 base64 = "0.22"
 urlencoding = "2"

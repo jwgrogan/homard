@@ -159,12 +159,62 @@ pub async fn auth_callback(
     State(state): State<AppState>,
     Path(provider): Path<String>,
     Query(query): Query<AuthCallbackQuery>,
-) -> std::result::Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let verifier = state.oauth.take_verifier(&provider).await
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "No pending auth flow".to_string()))?;
-    let tokens = state.oauth.exchange_code(&provider, &query.code, &verifier, 17700).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(serde_json::json!({"status": "connected", "expires_at": tokens.expires_at})))
+) -> axum::response::Html<String> {
+    let result = async {
+        let verifier = state.oauth.take_verifier(&provider).await
+            .ok_or_else(|| "No pending auth flow".to_string())?;
+        let tokens = state.oauth.exchange_code(&provider, &query.code, &verifier, 17700).await
+            .map_err(|e| e.to_string())?;
+
+        // Save provider config so the daemon knows about it
+        let dirs = crate::config::HomardDirs::default_path();
+        let mut config = state.config.write().await;
+
+        let provider_config = crate::types::ProviderConfig {
+            kind: match provider.as_str() {
+                "openai" => crate::types::ProviderKind::Openai,
+                "anthropic" => crate::types::ProviderKind::Anthropic,
+                _ => crate::types::ProviderKind::Openai,
+            },
+            auth_type: "oauth_pkce".to_string(),
+            client_id: None,
+            token_keychain_ref: Some(format!("homard.{}.oauth_tokens", provider)),
+            api_key_keychain_ref: None,
+            model: match provider.as_str() {
+                "openai" => "gpt-5.4".to_string(),
+                "anthropic" => "claude-sonnet-4-6".to_string(),
+                _ => "gpt-5.4".to_string(),
+            },
+            base_url: None,
+        };
+
+        config.providers.insert(provider.clone(), provider_config);
+        if config.providers.len() == 1 {
+            config.active_provider = provider.clone();
+        }
+        let _ = config.save(&dirs.config_path());
+
+        Ok::<_, String>(format!("Connected to {}!", provider))
+    }.await;
+
+    match result {
+        Ok(msg) => axum::response::Html(format!(
+            r#"<!DOCTYPE html><html><head><style>
+            body {{ font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #FAF5ED; color: #1B2D4F; }}
+            .card {{ text-align: center; padding: 2rem; border-radius: 1rem; background: #FDF8F0; border: 1px solid #C2D1C8; }}
+            h1 {{ color: #E85D4A; font-size: 1.5rem; }}
+            </style></head><body><div class="card"><h1>🦞 {}</h1><p>You can close this tab and return to Homard.</p></div></body></html>"#,
+            msg
+        )),
+        Err(e) => axum::response::Html(format!(
+            r#"<!DOCTYPE html><html><head><style>
+            body {{ font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #FAF5ED; color: #1B2D4F; }}
+            .card {{ text-align: center; padding: 2rem; border-radius: 1rem; background: #FDF8F0; border: 1px solid #C2D1C8; }}
+            h1 {{ color: #E85D4A; }}
+            </style></head><body><div class="card"><h1>Authentication Failed</h1><p>{}</p></div></body></html>"#,
+            e
+        )),
+    }
 }
 
 pub async fn telegram_pair(State(_state): State<AppState>) -> std::result::Result<Json<serde_json::Value>, (StatusCode, String)> {

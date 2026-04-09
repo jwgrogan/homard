@@ -9,7 +9,7 @@ const providerModels: Record<string, string[]> = {
   openrouter: ["anthropic/claude-sonnet-4-6", "openai/gpt-5.4"],
 };
 
-function ProviderCard({ name, status }: { name: string; status: DaemonStatus | null }) {
+function ProviderCard({ name, status, onRefresh }: { name: string; status: DaemonStatus | null; onRefresh: () => void }) {
   const isActive = status?.active_provider === name;
   const [connecting, setConnecting] = useState(false);
   const [model, setModel] = useState(status?.active_model || "");
@@ -18,10 +18,30 @@ function ProviderCard({ name, status }: { name: string; status: DaemonStatus | n
     setConnecting(true);
     try {
       const { auth_url } = await startAuth(name);
-      window.open(auth_url, "_blank");
+      // Use Tauri shell plugin to open in default browser
+      try {
+        const { open } = await import("@tauri-apps/plugin-shell");
+        await open(auth_url);
+      } catch {
+        window.open(auth_url, "_blank");
+      }
+      // Poll for auth completion (check every 3s for 2 min)
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts++;
+        if (attempts > 40) { clearInterval(poll); setConnecting(false); return; }
+        try {
+          const res = await fetch("http://localhost:17700/settings");
+          const cfg = await res.json();
+          if (cfg.providers && cfg.providers[name]) {
+            clearInterval(poll);
+            setConnecting(false);
+            onRefresh();
+          }
+        } catch { /* daemon may be busy */ }
+      }, 3000);
     } catch (e) {
       console.error(e);
-    } finally {
       setConnecting(false);
     }
   };
@@ -308,8 +328,12 @@ export default function Settings() {
   const [tab, setTab] = useState<SettingsTab>("providers");
   const [status, setStatus] = useState<DaemonStatus | null>(null);
 
+  const refreshStatus = () => getStatus().then(setStatus);
+
   useEffect(() => {
-    getStatus().then(setStatus);
+    refreshStatus();
+    const interval = setInterval(refreshStatus, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const tabs: { id: SettingsTab; label: string }[] = [
@@ -351,9 +375,9 @@ export default function Settings() {
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {tab === "providers" && (
           <div className="flex flex-col gap-2">
-            <ProviderCard name="openai" status={status} />
-            <ProviderCard name="anthropic" status={status} />
-            <ProviderCard name="openrouter" status={status} />
+            <ProviderCard name="openai" status={status} onRefresh={refreshStatus} />
+            <ProviderCard name="anthropic" status={status} onRefresh={refreshStatus} />
+            <ProviderCard name="openrouter" status={status} onRefresh={refreshStatus} />
           </div>
         )}
         {tab === "permissions" && <PermissionsPanel />}
