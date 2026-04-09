@@ -6,14 +6,14 @@ use crate::error::{HomardError, Result};
 pub fn spawn_schema() -> ToolSchema {
     ToolSchema {
         name: "spawn_session".to_string(),
-        description: "Spawn a Claude Code or Codex CLI session to handle complex coding tasks. Use this for tasks that need a full coding agent (file editing, debugging, multi-step development). The session runs in a specified directory and returns the output when complete.".to_string(),
+        description: "Spawn a Claude Code or Codex CLI session to handle complex coding tasks. Use this for tasks that need a full coding agent (file editing, debugging, multi-step development). The session runs in a specified directory and returns the output when complete. If 'cli' is omitted, uses the user's preferred coding CLI from config (with automatic fallback).".to_string(),
         parameters: serde_json::json!({
             "type": "object",
             "properties": {
                 "cli": {
                     "type": "string",
-                    "enum": ["claude", "codex"],
-                    "description": "Which CLI to use: 'claude' for Claude Code, 'codex' for OpenAI Codex"
+                    "enum": ["claude", "codex", "auto"],
+                    "description": "Which CLI to use. 'auto' (default) uses the user's preferred CLI with fallback. 'claude' for Claude Code, 'codex' for OpenAI Codex."
                 },
                 "prompt": {
                     "type": "string",
@@ -62,16 +62,43 @@ pub fn kill_session_schema() -> ToolSchema {
     }
 }
 
-pub async fn spawn(args: serde_json::Value, store: Arc<tokio::sync::Mutex<Store>>) -> Result<String> {
-    let cli_str = args.get("cli").and_then(|c| c.as_str()).unwrap_or("claude");
+pub async fn spawn(args: serde_json::Value, store: Arc<tokio::sync::Mutex<Store>>, preferred_cli: String, fallback_cli: String) -> Result<String> {
+    let cli_str = args.get("cli").and_then(|c| c.as_str()).unwrap_or("auto");
     let prompt = args.get("prompt").and_then(|p| p.as_str())
         .ok_or_else(|| HomardError::Tool("Missing 'prompt' argument".to_string()))?;
     let directory = args.get("directory").and_then(|d| d.as_str())
         .ok_or_else(|| HomardError::Tool("Missing 'directory' argument".to_string()))?;
 
     let cli = match cli_str {
+        "claude" => CliType::Claude,
         "codex" => CliType::Codex,
-        _ => CliType::Claude,
+        _ => {
+            // Auto mode: try preferred, fall back if not available
+            let preferred = match preferred_cli.as_str() {
+                "codex" => CliType::Codex,
+                _ => CliType::Claude,
+            };
+            let binary = match preferred {
+                CliType::Claude => "claude",
+                CliType::Codex => "codex",
+            };
+            // Check if preferred is available
+            let available = tokio::process::Command::new("which")
+                .arg(binary)
+                .output()
+                .await
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if available {
+                preferred
+            } else {
+                tracing::info!("Preferred CLI '{}' not found, falling back to '{}'", preferred_cli, fallback_cli);
+                match fallback_cli.as_str() {
+                    "codex" => CliType::Codex,
+                    _ => CliType::Claude,
+                }
+            }
+        }
     };
 
     // Expand ~ in directory

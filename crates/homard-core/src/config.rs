@@ -89,6 +89,20 @@ pub struct HomardConfig {
     pub bootstrapped: bool,
     #[serde(default)]
     pub server_mode: ServerMode,
+    /// Preferred CLI for coding delegation: "claude" or "codex"
+    #[serde(default = "default_coding_cli")]
+    pub preferred_coding_cli: String,
+    /// Fallback CLI if preferred is unavailable
+    #[serde(default = "default_coding_cli_fallback")]
+    pub coding_cli_fallback: String,
+}
+
+fn default_coding_cli() -> String {
+    "claude".to_string()
+}
+
+fn default_coding_cli_fallback() -> String {
+    "codex".to_string()
 }
 
 fn default_active_provider() -> String {
@@ -108,6 +122,8 @@ impl Default for HomardConfig {
             shell_tools: Vec::new(),
             bootstrapped: false,
             server_mode: ServerMode::default(),
+            preferred_coding_cli: default_coding_cli(),
+            coding_cli_fallback: default_coding_cli_fallback(),
         }
     }
 }

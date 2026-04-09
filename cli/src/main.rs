@@ -125,9 +125,13 @@ async fn main() -> anyhow::Result<()> {
             // Register CLI session tools
             {
                 let store_clone = store.clone();
+                let pref_cli = config.preferred_coding_cli.clone();
+                let fb_cli = config.coding_cli_fallback.clone();
                 tools.register(homard_core::tools::session::spawn_schema(), move |args| {
                     let s = store_clone.clone();
-                    async move { homard_core::tools::session::spawn(args, s).await }
+                    let p = pref_cli.clone();
+                    let f = fb_cli.clone();
+                    async move { homard_core::tools::session::spawn(args, s, p, f).await }
                 });
             }
             {
