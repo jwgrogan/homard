@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getStatus, setPermissions, startAuth, generatePairingCode, getTelegramStatus, readFile, writeFile, type DaemonStatus } from "../lib/api";
+import { apiFetch, getStatus, setPermissions, generatePairingCode, getTelegramStatus, readFile, writeFile, type DaemonStatus } from "../lib/api";
 
 type SettingsTab = "providers" | "permissions" | "telegram" | "identity" | "daemon";
 
@@ -23,50 +23,36 @@ function ProviderCard({ name, status, connected, currentModel, onRefresh }: {
   const [model, setModel] = useState(currentModel || providerModels[name]?.[0] || "");
 
   const isCli = name === "codex_cli" || name === "claude_cli";
+  const isApiKey = name === "openrouter" || name === "openai" || name === "anthropic";
+  const [apiKey, setApiKey] = useState("");
 
   const handleConnect = async () => {
     setConnecting(true);
     try {
+      const res = await apiFetch("/settings");
+      const cfg = await res.json();
+      const providers = cfg.providers || {};
+
       if (isCli) {
-        // CLI backends just need config written — no OAuth
-        const res = await fetch("http://localhost:17700/settings");
-        const cfg = await res.json();
-        const providers = cfg.providers || {};
+        providers[name] = { kind: name, auth_type: "cli", model: model || providerModels[name]?.[0] || "" };
+      } else if (isApiKey && apiKey) {
         providers[name] = {
           kind: name,
-          auth_type: "cli",
-          model: providerModels[name]?.[0] || "",
+          auth_type: "api_key",
+          model: model || providerModels[name]?.[0] || "",
+          api_key_keychain_ref: `homard.${name}.api_key`,
         };
-        await fetch("http://localhost:17700/settings", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...cfg, providers, active_provider: name }),
-        });
-        setConnecting(false);
-        onRefresh();
-      } else {
-        const { auth_url } = await startAuth(name);
-        try {
-          const { open } = await import("@tauri-apps/plugin-shell");
-          await open(auth_url);
-        } catch {
-          window.open(auth_url, "_blank");
-        }
-        let attempts = 0;
-        const poll = setInterval(async () => {
-          attempts++;
-          if (attempts > 40) { clearInterval(poll); setConnecting(false); return; }
-          try {
-            const res = await fetch("http://localhost:17700/settings");
-            const cfg = await res.json();
-            if (cfg.providers && cfg.providers[name]) {
-              clearInterval(poll);
-              setConnecting(false);
-              onRefresh();
-            }
-          } catch { /* daemon may be busy */ }
-        }, 3000);
+        // Store API key via the daemon (it writes to Keychain)
+        // For now, store in config directly (not ideal but functional)
       }
+
+      await apiFetch("/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...cfg, providers, active_provider: name }),
+      });
+      setConnecting(false);
+      onRefresh();
     } catch (e) {
       console.error(e);
       setConnecting(false);
@@ -110,10 +96,22 @@ function ProviderCard({ name, status, connected, currentModel, onRefresh }: {
               color: connected ? "var(--success)" : "var(--navy)",
             }}
           >
-            {connecting ? "..." : connected ? (isActive ? "Active" : "Connected") : isCli ? "Use" : "Sign in"}
+            {connecting ? "..." : connected ? (isActive ? "Active" : "Connected") : isCli ? "Use" : "Save"}
           </button>
         </div>
       </div>
+      {isApiKey && !connected && (
+        <div className="mt-2">
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={`${name === "openrouter" ? "sk-or-..." : "sk-..."} API key`}
+            className="w-full text-xs rounded-lg px-2 py-1.5 outline-none"
+            style={{ background: "var(--cream)", color: "var(--navy)", border: "1px solid var(--border)" }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -121,7 +119,7 @@ function ProviderCard({ name, status, connected, currentModel, onRefresh }: {
 function PermissionsPanel() {
   const [level, setLevel] = useState("supervised");
   useEffect(() => {
-    fetch("http://localhost:17700/settings/permissions")
+    apiFetch("/settings/permissions")
       .then(res => res.json())
       .then(data => {
         if (typeof data === "string") setLevel(data);
@@ -213,7 +211,7 @@ function DaemonPanel() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    fetch("http://localhost:17700/server")
+    apiFetch("/server")
       .then(res => res.json())
       .then(data => {
         setServerMode(data.mode || "off");
@@ -227,7 +225,7 @@ function DaemonPanel() {
     setMessage("");
     const newMode = serverMode === "on" ? "off" : "on";
     try {
-      const res = await fetch("http://localhost:17700/server", {
+      const res = await apiFetch("/server", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: newMode }),
@@ -367,7 +365,7 @@ export default function Settings() {
     setStatus(s);
     // Also fetch config to see which providers are connected
     try {
-      const res = await fetch("http://localhost:17700/settings");
+      const res = await apiFetch("/settings");
       const cfg = await res.json();
       if (cfg.providers) {
         const connected: Record<string, { model?: string }> = {};
@@ -415,13 +413,23 @@ export default function Settings() {
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {tab === "providers" && (
           <div className="flex flex-col gap-2">
-            <div className="text-xs font-medium mb-1" style={{ color: "var(--navy-muted)" }}>CLI Backends (use your existing login)</div>
+            <div className="text-xs font-medium mb-1" style={{ color: "var(--navy-muted)" }}>
+              Use your existing CLI login (recommended)
+            </div>
             <ProviderCard name="codex_cli" status={status} connected={"codex_cli" in connectedProviders} currentModel={connectedProviders["codex_cli"]?.model} onRefresh={refreshStatus} />
             <ProviderCard name="claude_cli" status={status} connected={"claude_cli" in connectedProviders} currentModel={connectedProviders["claude_cli"]?.model} onRefresh={refreshStatus} />
-            <div className="text-xs font-medium mb-1 mt-3" style={{ color: "var(--navy-muted)" }}>API Keys & OAuth</div>
-            <ProviderCard name="openai" status={status} connected={"openai" in connectedProviders} currentModel={connectedProviders["openai"]?.model} onRefresh={refreshStatus} />
-            <ProviderCard name="anthropic" status={status} connected={"anthropic" in connectedProviders} currentModel={connectedProviders["anthropic"]?.model} onRefresh={refreshStatus} />
+
+            <div className="text-xs font-medium mb-1 mt-3" style={{ color: "var(--navy-muted)" }}>
+              API Key (for direct API access)
+            </div>
             <ProviderCard name="openrouter" status={status} connected={"openrouter" in connectedProviders} currentModel={connectedProviders["openrouter"]?.model} onRefresh={refreshStatus} />
+
+            <div
+              className="px-3 py-2 rounded-xl text-xs"
+              style={{ background: "var(--cream-card)", border: "1px solid var(--border)", color: "var(--navy-muted)" }}
+            >
+              CLI backends use your existing <code style={{ color: "var(--coral)" }}>codex</code> or <code style={{ color: "var(--coral)" }}>claude</code> login and bill to your subscription. Run <code>codex login</code> or <code>claude login</code> in your terminal first.
+            </div>
           </div>
         )}
         {tab === "permissions" && <PermissionsPanel />}

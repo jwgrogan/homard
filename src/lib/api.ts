@@ -7,7 +7,7 @@ async function headers(): Promise<HeadersInit> {
   return { "Content-Type": "application/json" };
 }
 
-async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const h = new Headers(await headers());
   // Merge any caller-provided headers
   if (options.headers) {
