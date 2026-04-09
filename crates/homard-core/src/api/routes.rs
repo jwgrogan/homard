@@ -45,7 +45,7 @@ pub async fn status(State(state): State<AppState>) -> Json<DaemonStatus> {
     Json(DaemonStatus {
         running: true,
         uptime_secs: None,
-        active_provider: Some(config.active_provider.clone()),
+        active_provider: if config.providers.is_empty() { None } else { Some(config.active_provider.clone()) },
         active_model: config.providers.get(&config.active_provider).map(|p| p.model.clone()),
         permission_level: config.permission_level.clone(),
         telegram_connected: config.telegram.enabled,

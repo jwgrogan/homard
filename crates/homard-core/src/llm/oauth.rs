@@ -32,12 +32,12 @@ impl OAuthManager {
             authorize_url: "https://auth.openai.com/oauth/authorize".to_string(),
             token_url: "https://auth.openai.com/oauth/token".to_string(),
             client_id: "app_EMoamEEZ73f0CkXaXp7hrann".to_string(),
-            scopes: "openid profile email offline_access".to_string(),
+            scopes: "openid profile email offline_access api.connectors.read api.connectors.invoke".to_string(),
         });
         providers.insert("anthropic".to_string(), OAuthProviderConfig {
-            authorize_url: "https://claude.ai/oauth/authorize".to_string(),
-            token_url: "https://console.anthropic.com/v1/oauth/token".to_string(),
-            client_id: "9d1c250a-e61b-44d9-88ed-5944d1962f5e".to_string(),
+            authorize_url: "https://platform.claude.com/oauth/authorize".to_string(),
+            token_url: "https://platform.claude.com/v1/oauth/token".to_string(),
+            client_id: "https://claude.ai/oauth/claude-code-client-metadata".to_string(),
             scopes: "org:create_api_key user:profile user:inference".to_string(),
         });
 
@@ -68,29 +68,53 @@ impl OAuthManager {
         (verifier, challenge)
     }
 
-    /// Start OAuth flow: returns (auth_url, port). Spawns a temp callback server on an ephemeral port.
+    /// Start OAuth flow: returns (auth_url, port). Spawns a temp callback server.
     pub async fn start_auth(&self, provider_name: &str) -> Result<(String, u16)> {
         let provider = self.providers.get(provider_name)
             .ok_or_else(|| HomardError::OAuth(format!("Unknown provider: {}", provider_name)))?;
 
         let (verifier, challenge) = Self::generate_pkce();
 
-        // Bind ephemeral port for callback
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await
-            .map_err(|e| HomardError::OAuth(format!("Failed to bind: {}", e)))?;
+        // OpenAI requires port 1455 with localhost (not 127.0.0.1)
+        // Anthropic uses ephemeral port with localhost
+        let (listener, redirect_uri) = if provider_name == "openai" {
+            let l = tokio::net::TcpListener::bind("127.0.0.1:1455").await
+                .map_err(|e| HomardError::OAuth(format!("Port 1455 busy (is Codex running?): {}", e)))?;
+            (l, "http://localhost:1455/auth/callback".to_string())
+        } else {
+            let l = tokio::net::TcpListener::bind("127.0.0.1:0").await
+                .map_err(|e| HomardError::OAuth(format!("Failed to bind: {}", e)))?;
+            let port = l.local_addr().map_err(|e| HomardError::OAuth(e.to_string()))?.port();
+            let uri = format!("http://localhost:{}/callback", port);
+            (l, uri)
+        };
+
         let port = listener.local_addr()
             .map_err(|e| HomardError::OAuth(e.to_string()))?.port();
 
-        let redirect_uri = format!("http://127.0.0.1:{}/auth/callback", port);
+        // Generate random state
+        use rand::Rng;
+        let state: String = rand::thread_rng()
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(32)
+            .map(char::from)
+            .collect();
 
-        let auth_url = format!(
-            "{}?client_id={}&redirect_uri={}&response_type=code&scope={}&code_challenge={}&code_challenge_method=S256",
+        // Build auth URL with provider-specific params
+        let mut auth_url = format!(
+            "{}?client_id={}&redirect_uri={}&response_type=code&scope={}&code_challenge={}&code_challenge_method=S256&state={}",
             provider.authorize_url,
-            provider.client_id,
+            urlencoding::encode(&provider.client_id),
             urlencoding::encode(&redirect_uri),
             urlencoding::encode(&provider.scopes),
             challenge,
+            state,
         );
+
+        // OpenAI-specific params
+        if provider_name == "openai" {
+            auth_url.push_str("&codex_cli_simplified_flow=true&originator=homard&id_token_add_organizations=true");
+        }
 
         // Store verifier + redirect_uri for later exchange
         self.pending_verifiers.write().await.insert(
@@ -188,8 +212,34 @@ impl OAuthManager {
                 Ok(r) if r.status().is_success() => {
                     match r.json::<serde_json::Value>().await {
                         Ok(data) => {
-                            let access_token = data.get("access_token").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                            let mut access_token = data.get("access_token").and_then(|t| t.as_str()).unwrap_or("").to_string();
                             let refresh_token = data.get("refresh_token").and_then(|t| t.as_str()).map(|s| s.to_string());
+                            let id_token = data.get("id_token").and_then(|t| t.as_str()).map(|s| s.to_string());
+
+                            // OpenAI: exchange id_token for API key
+                            if provider_name_owned == "openai" {
+                                if let Some(ref idt) = id_token {
+                                    let api_key_resp = http.post(&token_url)
+                                        .form(&[
+                                            ("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange"),
+                                            ("client_id", &client_id),
+                                            ("requested_token", "openai-api-key"),
+                                            ("subject_token", idt),
+                                            ("subject_token_type", "urn:ietf:params:oauth:token-type:id_token"),
+                                        ])
+                                        .send()
+                                        .await;
+                                    if let Ok(r) = api_key_resp {
+                                        if let Ok(key_data) = r.json::<serde_json::Value>().await {
+                                            if let Some(key) = key_data.get("access_token").and_then(|t| t.as_str()) {
+                                                access_token = key.to_string();
+                                                tracing::info!("OpenAI: obtained API key via token exchange");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             let expires_in = data.get("expires_in").and_then(|e| e.as_u64());
                             let expires_at = expires_in.map(|secs| chrono::Utc::now() + chrono::Duration::seconds(secs as i64));
 

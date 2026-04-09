@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { marked } from "marked";
-import { sendChat, getConversation, type ChatMessage } from "../lib/api";
+import { sendChat, getConversation, getStatus, type ChatMessage } from "../lib/api";
 
 function MessageBubble({ msg }: { msg: ChatMessage }) {
   const isUser = msg.role === "user";
@@ -36,11 +36,13 @@ export default function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [hasProvider, setHasProvider] = useState<boolean | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     getConversation("chat", 30).then(setMessages);
+    getStatus().then(s => setHasProvider(s?.active_provider != null));
   }, []);
 
   useEffect(() => {
@@ -104,9 +106,20 @@ export default function Chat() {
         {messages.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
             <span className="text-4xl">{"\u{1F99E}"}</span>
-            <p className="text-sm" style={{ color: "var(--navy-muted)" }}>
-              Hey there. What can I help with?
-            </p>
+            {hasProvider === false ? (
+              <>
+                <p className="text-sm font-medium" style={{ color: "var(--navy)" }}>
+                  No provider configured
+                </p>
+                <p className="text-xs" style={{ color: "var(--navy-muted)" }}>
+                  Go to Settings &rarr; Providers to sign in with OpenAI or Anthropic.
+                </p>
+              </>
+            ) : (
+              <p className="text-sm" style={{ color: "var(--navy-muted)" }}>
+                Hey there. What can I help with?
+              </p>
+            )}
           </div>
         )}
         {messages.map((msg, i) => (
