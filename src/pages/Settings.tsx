@@ -9,10 +9,16 @@ const providerModels: Record<string, string[]> = {
   openrouter: ["anthropic/claude-sonnet-4-6", "openai/gpt-5.4"],
 };
 
-function ProviderCard({ name, status, onRefresh }: { name: string; status: DaemonStatus | null; onRefresh: () => void }) {
+function ProviderCard({ name, status, connected, currentModel, onRefresh }: {
+  name: string;
+  status: DaemonStatus | null;
+  connected: boolean;
+  currentModel?: string;
+  onRefresh: () => void;
+}) {
   const isActive = status?.active_provider === name;
   const [connecting, setConnecting] = useState(false);
-  const [model, setModel] = useState(status?.active_model || "");
+  const [model, setModel] = useState(currentModel || providerModels[name]?.[0] || "");
 
   const handleConnect = async () => {
     setConnecting(true);
@@ -73,11 +79,14 @@ function ProviderCard({ name, status, onRefresh }: { name: string; status: Daemo
           </select>
           <button
             onClick={handleConnect}
-            disabled={connecting}
+            disabled={connecting || connected}
             className="px-3 py-1 rounded-lg text-xs font-medium transition-colors"
-            style={{ background: "var(--sage)", color: "var(--navy)" }}
+            style={{
+              background: connected ? "#E8F5E9" : "var(--sage)",
+              color: connected ? "#2E7D32" : "var(--navy)",
+            }}
           >
-            {connecting ? "..." : "Sign in"}
+            {connecting ? "Connecting..." : connected ? "Connected" : "Sign in"}
           </button>
         </div>
       </div>
@@ -327,8 +336,24 @@ function IdentityPanel() {
 export default function Settings() {
   const [tab, setTab] = useState<SettingsTab>("providers");
   const [status, setStatus] = useState<DaemonStatus | null>(null);
+  const [connectedProviders, setConnectedProviders] = useState<Record<string, { model?: string }>>({});
 
-  const refreshStatus = () => getStatus().then(setStatus);
+  const refreshStatus = async () => {
+    const s = await getStatus();
+    setStatus(s);
+    // Also fetch config to see which providers are connected
+    try {
+      const res = await fetch("http://localhost:17700/settings");
+      const cfg = await res.json();
+      if (cfg.providers) {
+        const connected: Record<string, { model?: string }> = {};
+        for (const [name, p] of Object.entries(cfg.providers)) {
+          connected[name] = { model: (p as { model?: string }).model };
+        }
+        setConnectedProviders(connected);
+      }
+    } catch { /* daemon down */ }
+  };
 
   useEffect(() => {
     refreshStatus();
@@ -375,9 +400,9 @@ export default function Settings() {
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {tab === "providers" && (
           <div className="flex flex-col gap-2">
-            <ProviderCard name="openai" status={status} onRefresh={refreshStatus} />
-            <ProviderCard name="anthropic" status={status} onRefresh={refreshStatus} />
-            <ProviderCard name="openrouter" status={status} onRefresh={refreshStatus} />
+            <ProviderCard name="openai" status={status} connected={"openai" in connectedProviders} currentModel={connectedProviders["openai"]?.model} onRefresh={refreshStatus} />
+            <ProviderCard name="anthropic" status={status} connected={"anthropic" in connectedProviders} currentModel={connectedProviders["anthropic"]?.model} onRefresh={refreshStatus} />
+            <ProviderCard name="openrouter" status={status} connected={"openrouter" in connectedProviders} currentModel={connectedProviders["openrouter"]?.model} onRefresh={refreshStatus} />
           </div>
         )}
         {tab === "permissions" && <PermissionsPanel />}

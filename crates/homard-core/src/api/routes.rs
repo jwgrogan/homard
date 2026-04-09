@@ -41,14 +41,25 @@ pub async fn stop_run(State(state): State<AppState>) -> StatusCode {
 }
 
 pub async fn status(State(state): State<AppState>) -> Json<DaemonStatus> {
-    let config = state.config.read().await;
+    // Re-read config from disk to pick up OAuth changes
+    let dirs = crate::config::HomardDirs::default_path();
+    let fresh = crate::config::HomardConfig::load_or_default(&dirs.config_path());
+
+    // Update in-memory config if providers changed
+    {
+        let mut config = state.config.write().await;
+        if config.providers.len() != fresh.providers.len() || config.active_provider != fresh.active_provider {
+            *config = fresh.clone();
+        }
+    }
+
     Json(DaemonStatus {
         running: true,
         uptime_secs: None,
-        active_provider: if config.providers.is_empty() { None } else { Some(config.active_provider.clone()) },
-        active_model: config.providers.get(&config.active_provider).map(|p| p.model.clone()),
-        permission_level: config.permission_level.clone(),
-        telegram_connected: config.telegram.enabled,
+        active_provider: if fresh.providers.is_empty() { None } else { Some(fresh.active_provider.clone()) },
+        active_model: fresh.providers.get(&fresh.active_provider).map(|p| p.model.clone()),
+        permission_level: fresh.permission_level.clone(),
+        telegram_connected: fresh.telegram.enabled,
         current_run: None,
     })
 }
@@ -110,8 +121,14 @@ pub async fn cron_health(State(state): State<AppState>) -> std::result::Result<J
 }
 
 pub async fn get_settings(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let config = state.config.read().await;
-    Json(serde_json::to_value(&*config).unwrap_or_default())
+    // Re-read from disk to pick up OAuth changes
+    let dirs = crate::config::HomardDirs::default_path();
+    let fresh = crate::config::HomardConfig::load_or_default(&dirs.config_path());
+    {
+        let mut config = state.config.write().await;
+        *config = fresh.clone();
+    }
+    Json(serde_json::to_value(&fresh).unwrap_or_default())
 }
 
 pub async fn update_settings(

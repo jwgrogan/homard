@@ -13,7 +13,7 @@ pub struct LlmResponse {
 pub struct LlmClient {
     http: reqwest::Client,
     oauth: Arc<OAuthManager>,
-    provider_configs: std::collections::HashMap<String, ProviderConfig>,
+    provider_configs: tokio::sync::RwLock<std::collections::HashMap<String, ProviderConfig>>,
     active_provider: tokio::sync::RwLock<String>,
 }
 
@@ -32,18 +32,39 @@ impl LlmClient {
         Self {
             http,
             oauth,
-            provider_configs,
+            provider_configs: tokio::sync::RwLock::new(provider_configs),
             active_provider: tokio::sync::RwLock::new(active_provider),
         }
     }
 
+    /// Reload provider configs and active provider from disk
+    pub async fn reload_config(&self) {
+        let dirs = crate::config::HomardDirs::default_path();
+        let fresh = crate::config::HomardConfig::load_or_default(&dirs.config_path());
+        *self.provider_configs.write().await = fresh.providers;
+        *self.active_provider.write().await = fresh.active_provider;
+    }
+
     pub async fn chat(&self, messages: &[ChatMessage], tools: &[ToolSchema]) -> Result<LlmResponse> {
         let provider_name = self.active_provider.read().await.clone();
-        let config = self.provider_configs.get(&provider_name)
-            .ok_or_else(|| HomardError::Llm(format!("Provider '{}' not configured", provider_name)))?;
+        let configs = self.provider_configs.read().await;
+
+        // If provider not found, try reloading config from disk (OAuth may have added it)
+        let config = match configs.get(&provider_name) {
+            Some(c) => c.clone(),
+            None => {
+                drop(configs);
+                self.reload_config().await;
+                let configs = self.provider_configs.read().await;
+                let provider_name = self.active_provider.read().await.clone();
+                configs.get(&provider_name)
+                    .ok_or_else(|| HomardError::Llm(format!("Provider '{}' not configured. Sign in via Settings.", provider_name)))?
+                    .clone()
+            }
+        };
 
         // Get auth token
-        let token = self.get_token(&provider_name, config).await?;
+        let token = self.get_token(&provider_name, &config).await?;
 
         match config.kind {
             ProviderKind::Openai | ProviderKind::Openrouter => {
