@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import Chat from "./pages/Chat";
 import Activity from "./pages/Activity";
 import Settings from "./pages/Settings";
+import { apiFetch } from "./lib/api";
 
 type Tab = "chat" | "activity" | "settings";
 
@@ -29,8 +30,8 @@ export default function App() {
 
   // Poll daemon status
   useEffect(() => {
-    const check = () => fetch("http://localhost:17700/status")
-      .then(() => setDaemonOnline(true))
+    const check = () => apiFetch("/status")
+      .then(r => { setDaemonOnline(r.ok); })
       .catch(() => setDaemonOnline(false));
     check();
     const interval = setInterval(check, 5000);
