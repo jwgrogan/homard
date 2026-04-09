@@ -47,22 +47,15 @@ impl LlmClient {
     }
 
     pub async fn chat(&self, messages: &[ChatMessage], tools: &[ToolSchema]) -> Result<LlmResponse> {
+        // Always reload config to pick up provider switches immediately
+        self.reload_config().await;
+
         let provider_name = self.active_provider.read().await.clone();
         let configs = self.provider_configs.read().await;
-
-        // If provider not found, try reloading config from disk (OAuth may have added it)
-        let config = match configs.get(&provider_name) {
-            Some(c) => c.clone(),
-            None => {
-                drop(configs);
-                self.reload_config().await;
-                let configs = self.provider_configs.read().await;
-                let provider_name = self.active_provider.read().await.clone();
-                configs.get(&provider_name)
-                    .ok_or_else(|| HomardError::Llm(format!("Provider '{}' not configured. Sign in via Settings.", provider_name)))?
-                    .clone()
-            }
-        };
+        let config = configs.get(&provider_name)
+            .ok_or_else(|| HomardError::Llm(format!("Provider '{}' not configured. Sign in via Settings.", provider_name)))?
+            .clone();
+        drop(configs);
 
         match config.kind {
             // CLI backends — run codex/claude as subprocess (uses their own auth, bills to subscription)
