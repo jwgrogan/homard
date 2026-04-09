@@ -28,7 +28,14 @@ impl SecurityManager {
             PermissionLevel::Locked => {
                 matches!(tool_name, "memory_search" | "web_search" | "web_fetch")
             }
-            PermissionLevel::Autonomous => true,
+            PermissionLevel::Autonomous => {
+                // Autonomous auto-approves everything EXCEPT categorically dangerous commands
+                if tool_name == "shell_exec" && sandbox::is_blocked(arguments) {
+                    tracing::warn!("Blocked dangerous command even in autonomous mode: {:?}", arguments);
+                    return false;
+                }
+                true
+            }
             PermissionLevel::Supervised => {
                 // In supervised mode, we'd ideally prompt for dangerous operations.
                 // For v1, auto-approve everything except shell_exec with dangerous patterns.

@@ -380,6 +380,10 @@ pub async fn read_file(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> std::result::Result<String, (StatusCode, String)> {
+    // Block path traversal
+    if name.contains("..") || name.contains('/') || name.contains('\\') {
+        return Err((StatusCode::BAD_REQUEST, "Invalid filename".to_string()));
+    }
     let path = state.homard_dir.join(&name);
     tokio::fs::read_to_string(&path).await
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))
@@ -389,10 +393,13 @@ pub async fn write_file(
     State(state): State<AppState>,
     Path(name): Path<String>,
     body: String,
-) -> StatusCode {
-    let path = state.homard_dir.join(&name);
-    match tokio::fs::write(&path, body).await {
-        Ok(_) => StatusCode::OK,
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+) -> std::result::Result<StatusCode, (StatusCode, String)> {
+    // Block path traversal — only allow simple filenames
+    if name.contains("..") || name.contains('/') || name.contains('\\') {
+        return Err((StatusCode::BAD_REQUEST, "Invalid filename".to_string()));
     }
+    let path = state.homard_dir.join(&name);
+    tokio::fs::write(&path, body).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::OK)
 }

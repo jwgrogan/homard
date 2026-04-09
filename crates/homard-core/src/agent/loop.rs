@@ -9,6 +9,8 @@ use crate::security::SecurityManager;
 use super::context::ContextBuilder;
 use super::hang::HangDetector;
 
+const MAX_ITERATIONS: u32 = 50;
+
 pub struct AgentLoop {
     llm: Arc<LlmClient>,
     tools: Arc<ToolRegistry>,
@@ -200,6 +202,12 @@ impl AgentLoop {
             }
 
             iterations += 1;
+            if iterations >= MAX_ITERATIONS {
+                tracing::error!("Agent loop hit maximum iteration cap ({})", MAX_ITERATIONS);
+                break Err(crate::error::HomardError::Agent(
+                    format!("Reached maximum {} iterations. The task may be too complex — try breaking it into smaller steps.", MAX_ITERATIONS)
+                ));
+            }
         };
 
         // Complete the run

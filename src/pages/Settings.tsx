@@ -106,8 +106,8 @@ function ProviderCard({ name, status, connected, currentModel, onRefresh }: {
             disabled={connecting || connected}
             className="px-3 py-1 rounded-lg text-xs font-medium transition-colors"
             style={{
-              background: connected ? "#E8F5E9" : "var(--sage)",
-              color: connected ? "#2E7D32" : "var(--navy)",
+              background: connected ? "var(--success-bg)" : "var(--sage)",
+              color: connected ? "var(--success)" : "var(--navy)",
             }}
           >
             {connecting ? "..." : connected ? (isActive ? "Active" : "Connected") : isCli ? "Use" : "Sign in"}
@@ -395,15 +395,6 @@ export default function Settings() {
 
   return (
     <div className="flex flex-col h-full">
-      <div
-        className="px-4 py-3 border-b"
-        style={{ borderColor: "var(--border)", background: "var(--sage)" }}
-      >
-        <span className="font-semibold text-sm" style={{ color: "var(--navy)" }}>
-          Settings
-        </span>
-      </div>
-
       {/* Setting tabs */}
       <div className="flex gap-1 px-4 pt-3">
         {tabs.map((t) => (
@@ -446,7 +437,7 @@ export default function Settings() {
       >
         <span
           className="w-2 h-2 rounded-full"
-          style={{ background: status?.running ? "#4CAF50" : "#E53935" }}
+          style={{ background: status?.running ? "var(--success)" : "var(--error)" }}
         />
         {status?.running ? `Daemon running \u00B7 ${status.active_provider}` : "Daemon offline"}
       </div>

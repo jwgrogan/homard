@@ -4,8 +4,8 @@ import { getActivity, getSessions, getCronHealth, killSession, type AgentRun, ty
 function StatusDot({ status }: { status: string }) {
   const color =
     status === "running" ? "var(--coral)" :
-    status === "complete" ? "#4CAF50" :
-    status === "error" ? "#E53935" :
+    status === "complete" ? "var(--success)" :
+    status === "error" ? "var(--error)" :
     "var(--navy-muted)";
 
   return (
@@ -80,8 +80,8 @@ function CronHealthCard({ entry }: { entry: CronHealthEntry }) {
         <span
           className="text-xs font-medium px-1.5 py-0.5 rounded"
           style={{
-            background: rate >= 90 ? "#E8F5E9" : rate >= 50 ? "#FFF3E0" : "#FFEBEE",
-            color: rate >= 90 ? "#2E7D32" : rate >= 50 ? "#E65100" : "#C62828",
+            background: rate >= 90 ? "var(--success-bg)" : rate >= 50 ? "var(--warning-bg)" : "var(--error-bg)",
+            color: rate >= 90 ? "var(--success)" : rate >= 50 ? "var(--warning)" : "var(--error)",
           }}
         >
           {rate}% success
@@ -119,92 +119,81 @@ export default function Activity() {
   const runningSessions = sessions.filter((s) => s.status === "running");
 
   return (
-    <div className="flex flex-col h-full">
-      <div
-        className="px-4 py-3 border-b"
-        style={{ borderColor: "var(--border)", background: "var(--sage)" }}
-      >
-        <span className="font-semibold text-sm" style={{ color: "var(--navy)" }}>
-          Activity
-        </span>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        {/* Running Sessions */}
-        {runningSessions.length > 0 && (
-          <div className="mb-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--navy-muted)" }}>
-              Running Sessions
-            </h3>
-            <div className="flex flex-col gap-2">
-              {runningSessions.map((session) => (
-                <SessionCard key={session.id} session={session} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Cron Health */}
-        {cronHealth.length > 0 && (
-          <div className="mb-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--navy-muted)" }}>
-              Cron Health
-            </h3>
-            <div className="flex flex-col gap-2">
-              {cronHealth.map((entry) => (
-                <CronHealthCard key={entry.name} entry={entry} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Recent Runs */}
-        <div>
+    <div className="flex-1 overflow-y-auto px-4 py-3">
+      {/* Running Sessions */}
+      {runningSessions.length > 0 && (
+        <div className="mb-4">
           <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--navy-muted)" }}>
-            Recent Runs
+            Running Sessions
           </h3>
-          {runs.length === 0 ? (
-            <p className="text-sm text-center mt-8" style={{ color: "var(--navy-muted)" }}>
-              No activity yet
-            </p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {runs.map((run) => (
-                <button
-                  key={run.id}
-                  onClick={() => setExpanded(expanded === run.id ? null : run.id)}
-                  className="w-full text-left px-3 py-2.5 rounded-xl transition-colors"
-                  style={{
-                    background: "var(--cream-card)",
-                    border: "1px solid var(--border)",
-                  }}
-                >
-                  <div className="flex items-center gap-2">
-                    <StatusDot status={run.status} />
-                    <span className="text-sm font-medium flex-1 truncate" style={{ color: "var(--navy)" }}>
-                      {run.channel}
-                    </span>
-                    <span className="text-xs" style={{ color: "var(--navy-muted)" }}>
-                      {formatDuration(run.duration_ms)}
-                    </span>
-                    <span className="text-xs" style={{ color: "var(--navy-muted)" }}>
-                      {formatTime(run.started_at)}
-                    </span>
-                  </div>
-                  {expanded === run.id && (
-                    <div className="mt-2 pt-2 text-xs" style={{ borderTop: "1px solid var(--border)", color: "var(--navy-muted)" }}>
-                      <div>Trigger: {run.trigger}</div>
-                      <div>Iterations: {run.iterations}</div>
-                      {run.error_message && (
-                        <div className="mt-1" style={{ color: "#E53935" }}>Error: {run.error_message}</div>
-                      )}
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="flex flex-col gap-2">
+            {runningSessions.map((session) => (
+              <SessionCard key={session.id} session={session} />
+            ))}
+          </div>
         </div>
+      )}
+
+      {/* Cron Health */}
+      {cronHealth.length > 0 && (
+        <div className="mb-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--navy-muted)" }}>
+            Cron Health
+          </h3>
+          <div className="flex flex-col gap-2">
+            {cronHealth.map((entry) => (
+              <CronHealthCard key={entry.name} entry={entry} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Runs */}
+      <div>
+        <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--navy-muted)" }}>
+          Recent Runs
+        </h3>
+        {runs.length === 0 ? (
+          <p className="text-sm text-center mt-8" style={{ color: "var(--navy-muted)" }}>
+            No activity yet
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {runs.map((run) => (
+              <button
+                key={run.id}
+                onClick={() => setExpanded(expanded === run.id ? null : run.id)}
+                className="w-full text-left px-3 py-2.5 rounded-xl transition-colors"
+                style={{
+                  background: "var(--cream-card)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <StatusDot status={run.status} />
+                  <span className="text-sm font-medium flex-1 truncate" style={{ color: "var(--navy)" }}>
+                    {run.channel}
+                  </span>
+                  <span className="text-xs" style={{ color: "var(--navy-muted)" }}>
+                    {formatDuration(run.duration_ms)}
+                  </span>
+                  <span className="text-xs" style={{ color: "var(--navy-muted)" }}>
+                    {formatTime(run.started_at)}
+                  </span>
+                </div>
+                {expanded === run.id && (
+                  <div className="mt-2 pt-2 text-xs" style={{ borderTop: "1px solid var(--border)", color: "var(--navy-muted)" }}>
+                    <div>Trigger: {run.trigger}</div>
+                    <div>Iterations: {run.iterations}</div>
+                    {run.error_message && (
+                      <div className="mt-1" style={{ color: "var(--error)" }}>Error: {run.error_message}</div>
+                    )}
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

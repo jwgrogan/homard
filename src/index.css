@@ -8,6 +8,12 @@
   --navy: #1B2D4F;
   --navy-muted: #4A6180;
   --border: #C2D1C8;
+  --success: #3D7A5F;
+  --success-bg: #E8F0EC;
+  --error: #C44D3B;
+  --error-bg: #FDE8E4;
+  --warning: #C49A3B;
+  --warning-bg: #FDF5E4;
 }
 
 html, body {
@@ -26,6 +32,19 @@ html, body {
   height: 100vh;
   box-shadow: 0 8px 32px rgba(27, 45, 79, 0.12), 0 2px 8px rgba(27, 45, 79, 0.08);
   border: 1px solid var(--border);
+}
+
+/* Interactive states */
+button:not(:disabled):hover {
+  filter: brightness(0.95);
+}
+button:not(:disabled):active {
+  filter: brightness(0.9);
+  transform: scale(0.98);
+}
+button:focus-visible {
+  outline: 2px solid var(--coral);
+  outline-offset: 2px;
 }
 
 /* Scrollbar styling */

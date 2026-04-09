@@ -2,6 +2,9 @@ pub mod routes;
 
 use std::sync::Arc;
 use axum::{Router, routing::{get, post, put, delete}};
+use axum::middleware;
+use axum::http::Request;
+use axum::response::Response;
 use tower_http::cors::{CorsLayer, Any};
 use crate::agent::r#loop::AgentLoop;
 use crate::store::Store;
@@ -18,6 +21,33 @@ pub struct AppState {
     pub oauth: Arc<OAuthManager>,
     pub homard_dir: std::path::PathBuf,
     pub stop_tx: tokio::sync::watch::Sender<bool>,
+}
+
+async fn auth_middleware(
+    req: Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let dirs = crate::config::HomardDirs::default_path();
+    let token_path = dirs.root().join("api.token");
+    let expected = std::fs::read_to_string(&token_path).unwrap_or_default().trim().to_string();
+
+    if expected.is_empty() {
+        return next.run(req).await; // No token configured, skip auth
+    }
+
+    let auth_header = req.headers().get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if auth_header == format!("Bearer {}", expected) || auth_header.is_empty() && req.uri().path().starts_with("/auth/") {
+        // Allow auth callback without token (browser redirect)
+        next.run(req).await
+    } else {
+        axum::response::Response::builder()
+            .status(401)
+            .body(axum::body::Body::from("Unauthorized"))
+            .unwrap()
+    }
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -41,14 +71,34 @@ pub fn create_router(state: AppState) -> Router {
         .route("/sessions", get(routes::list_cli_sessions))
         .route("/sessions/{id}", delete(routes::kill_cli_session))
         .route("/files/{name}", get(routes::read_file).put(routes::write_file))
+        .layer(middleware::from_fn(auth_middleware))
         .layer(CorsLayer::new()
-            .allow_origin(Any)
+            .allow_origin(["tauri://localhost".parse().unwrap(), "http://localhost:5173".parse().unwrap()])
             .allow_methods(Any)
             .allow_headers(Any))
         .with_state(state)
 }
 
 pub async fn serve(state: AppState, port: u16) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Generate API auth token
+    let token: String = {
+        use rand::Rng;
+        rand::thread_rng()
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(48)
+            .map(char::from)
+            .collect()
+    };
+    let token_path = state.homard_dir.join("api.token");
+    let _ = std::fs::write(&token_path, &token);
+    // Set file permissions to owner-only
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&token_path, std::fs::Permissions::from_mode(0o600));
+    }
+    tracing::info!("API auth token written to {}", token_path.display());
+
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
     tracing::info!("Homard daemon listening on 127.0.0.1:{}", port);
     axum::serve(listener, create_router(state)).await?;

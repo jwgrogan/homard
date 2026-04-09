@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { sendChat, getConversation, getStatus, type ChatMessage } from "../lib/api";
 
 function MessageBubble({ msg }: { msg: ChatMessage }) {
@@ -20,7 +21,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
       >
         <div
           className="prose prose-sm max-w-none"
-          dangerouslySetInnerHTML={{ __html: marked.parse(msg.content, { breaks: true }) as string }}
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(msg.content, { breaks: true }) as string) }}
         />
         {msg.tool_calls && msg.tool_calls.length > 0 && (
           <div className="mt-1 text-xs opacity-70">
@@ -85,27 +86,11 @@ export default function Chat() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div
-        className="px-4 py-3 border-b flex items-center gap-2"
-        style={{ borderColor: "var(--border)", background: "var(--sage)" }}
-      >
-        <span className="text-lg">{"\u{1F99E}"}</span>
-        <span className="font-semibold text-sm" style={{ color: "var(--navy)" }}>
-          Homard
-        </span>
-        {loading && (
-          <span className="text-xs ml-auto" style={{ color: "var(--navy-muted)" }}>
-            thinking...
-          </span>
-        )}
-      </div>
-
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
         {messages.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
-            <span className="text-4xl">{"\u{1F99E}"}</span>
+            <span className="w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold" style={{ background: "var(--coral)", color: "white" }}>H</span>
             {hasProvider === false ? (
               <>
                 <p className="text-sm font-medium" style={{ color: "var(--navy)" }}>
@@ -136,7 +121,7 @@ export default function Chat() {
               }}
             >
               <span className="animate-pulse" style={{ color: "var(--navy-muted)" }}>
-                {"\u00B7\u00B7\u00B7"}
+                thinking...
               </span>
             </div>
           </div>

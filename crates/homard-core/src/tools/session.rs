@@ -181,8 +181,12 @@ pub async fn spawn(args: serde_json::Value, store: Arc<tokio::sync::Mutex<Store>
 
     tracing::info!("Spawned {} session {} in {}: {}", cli_binary, session_id, expanded_dir, prompt);
 
-    // Wait for completion
-    let output = child.wait_with_output().await
+    // Wait for completion with timeout
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(600), // 10 min timeout
+        child.wait_with_output(),
+    ).await
+        .map_err(|_| HomardError::Tool(format!("{} session timed out after 10 minutes", cli_binary)))?
         .map_err(|e| HomardError::Tool(format!("Session failed: {}", e)))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();

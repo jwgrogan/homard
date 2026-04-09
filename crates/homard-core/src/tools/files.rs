@@ -11,30 +11,43 @@ const BLOCKED_READ_PATHS: &[&str] = &[
     "/etc/master.passwd",
 ];
 
-const ALLOWED_WRITE_PREFIXES: &[&str] = &[
-    ".homard/",
-];
-
 fn is_read_blocked(path: &str) -> bool {
     BLOCKED_READ_PATHS.iter().any(|p| path.contains(p))
 }
 
 fn is_write_allowed(path: &str) -> bool {
-    // Allow writes to ~/.homard/ and relative paths (workspace)
+    // Block path traversal
+    if path.contains("..") {
+        return false;
+    }
+
+    // Resolve to absolute for checking
     let expanded = if path.starts_with("~/") {
-        path.to_string()
+        if let Some(home) = dirs::home_dir() {
+            home.join(&path[2..]).to_string_lossy().to_string()
+        } else {
+            return false;
+        }
     } else if path.starts_with('/') {
         path.to_string()
     } else {
-        return true; // relative paths are OK (workspace)
+        // Relative paths: only allow within ~/.homard/workspace/
+        if let Some(home) = dirs::home_dir() {
+            let workspace = home.join(".homard").join("workspace");
+            // Ensure workspace exists
+            let _ = std::fs::create_dir_all(&workspace);
+            workspace.join(path).to_string_lossy().to_string()
+        } else {
+            return false;
+        }
     };
 
-    // Check allowed prefixes (expand ~ to home dir)
+    // Check allowed prefixes
     if let Some(home) = dirs::home_dir() {
         let home_str = home.to_string_lossy();
-        for prefix in ALLOWED_WRITE_PREFIXES {
-            let full_prefix = format!("{}/{}", home_str, prefix);
-            if expanded.starts_with(&full_prefix) || expanded.starts_with(&format!("~/{}", prefix)) {
+        let allowed = [".homard/"];
+        for prefix in &allowed {
+            if expanded.starts_with(&format!("{}/{}", home_str, prefix)) {
                 return true;
             }
         }
