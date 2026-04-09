@@ -1,11 +1,10 @@
 const BASE = "http://localhost:17700";
 
 async function headers(): Promise<HeadersInit> {
-  // Read token from filesystem (Tauri) or skip (dev)
-  const h: Record<string, string> = { "Content-Type": "application/json" };
-  // For now, skip token in dev mode. Tauri builds will include it.
-  // CORS restriction to tauri:// origin is the primary defense.
-  return h;
+  // Auth is handled by origin-based check in the daemon middleware.
+  // tauri://localhost and http://localhost:5173 are allowed origins.
+  // External API consumers use the bearer token from ~/.homard/api.token.
+  return { "Content-Type": "application/json" };
 }
 
 async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {

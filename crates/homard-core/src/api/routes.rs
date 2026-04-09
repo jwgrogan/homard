@@ -380,8 +380,8 @@ pub async fn read_file(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> std::result::Result<String, (StatusCode, String)> {
-    // Block path traversal
-    if name.contains("..") || name.contains('/') || name.contains('\\') {
+    // Block path traversal and sensitive files
+    if name.contains("..") || name.contains('/') || name.contains('\\') || name == "api.token" {
         return Err((StatusCode::BAD_REQUEST, "Invalid filename".to_string()));
     }
     let path = state.homard_dir.join(&name);

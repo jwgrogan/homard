@@ -73,15 +73,18 @@ impl CliBackend {
         }
 
         let mut cmd = tokio::process::Command::new(binary);
-        cmd.arg("-p").arg(prompt)
-            .arg("--output-format").arg("text")
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
 
-        // Claude-specific flags
         if binary == "claude" {
-            cmd.arg("--verbose");
+            // claude -p "prompt" --output-format text
+            cmd.arg("-p").arg(prompt)
+                .arg("--output-format").arg("text");
+        } else if binary == "codex" {
+            // codex exec "prompt"
+            cmd.arg("exec").arg(prompt);
         }
+
+        cmd.stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
 
         let child = cmd.spawn()
             .map_err(|e| HomardError::Llm(format!("Failed to start {}: {}", binary, e)))?;

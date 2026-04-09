@@ -39,8 +39,15 @@ async fn auth_middleware(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    if auth_header == format!("Bearer {}", expected) || auth_header.is_empty() && req.uri().path().starts_with("/auth/") {
-        // Allow auth callback without token (browser redirect)
+    let origin = req.headers().get("origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let is_tauri = origin == "tauri://localhost";
+    let is_auth_callback = req.uri().path().starts_with("/auth/");
+    let has_valid_token = auth_header == format!("Bearer {}", expected);
+
+    if has_valid_token || is_tauri || is_auth_callback {
         next.run(req).await
     } else {
         axum::response::Response::builder()
