@@ -3,6 +3,7 @@ use crate::types::*;
 use crate::error::{HomardError, Result};
 use super::openai::OpenAiProvider;
 use super::anthropic::AnthropicProvider;
+use super::cli_backend::CliBackend;
 use super::oauth::OAuthManager;
 
 pub struct LlmResponse {
@@ -63,11 +64,17 @@ impl LlmClient {
             }
         };
 
-        // Get auth token
-        let token = self.get_token(&provider_name, &config).await?;
-
         match config.kind {
+            // CLI backends — run codex/claude as subprocess (uses their own auth, bills to subscription)
+            ProviderKind::CodexCli => {
+                CliBackend::codex_chat(messages, tools).await
+            }
+            ProviderKind::ClaudeCli => {
+                CliBackend::claude_chat(messages, tools).await
+            }
+            // Direct API backends — use HTTP with our own auth
             ProviderKind::Openai | ProviderKind::Openrouter => {
+                let token = self.get_token(&provider_name, &config).await?;
                 let base_url = config.base_url.as_deref().unwrap_or(match config.kind {
                     ProviderKind::Openai => "https://api.openai.com/v1",
                     ProviderKind::Openrouter => "https://openrouter.ai/api/v1",
@@ -76,6 +83,7 @@ impl LlmClient {
                 OpenAiProvider::chat(&self.http, base_url, &token, &config.model, messages, tools).await
             }
             ProviderKind::Anthropic => {
+                let token = self.get_token(&provider_name, &config).await?;
                 let base_url = config.base_url.as_deref().unwrap_or("https://api.anthropic.com/v1");
                 AnthropicProvider::chat(&self.http, base_url, &token, &config.model, messages, tools).await
             }

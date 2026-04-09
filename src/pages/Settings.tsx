@@ -4,6 +4,8 @@ import { getStatus, setPermissions, startAuth, generatePairingCode, getTelegramS
 type SettingsTab = "providers" | "permissions" | "telegram" | "identity" | "daemon";
 
 const providerModels: Record<string, string[]> = {
+  codex_cli: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"],
+  claude_cli: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"],
   openai: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"],
   anthropic: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"],
   openrouter: ["anthropic/claude-sonnet-4-6", "openai/gpt-5.4"],
@@ -20,32 +22,51 @@ function ProviderCard({ name, status, connected, currentModel, onRefresh }: {
   const [connecting, setConnecting] = useState(false);
   const [model, setModel] = useState(currentModel || providerModels[name]?.[0] || "");
 
+  const isCli = name === "codex_cli" || name === "claude_cli";
+
   const handleConnect = async () => {
     setConnecting(true);
     try {
-      const { auth_url } = await startAuth(name);
-      // Use Tauri shell plugin to open in default browser
-      try {
-        const { open } = await import("@tauri-apps/plugin-shell");
-        await open(auth_url);
-      } catch {
-        window.open(auth_url, "_blank");
-      }
-      // Poll for auth completion (check every 3s for 2 min)
-      let attempts = 0;
-      const poll = setInterval(async () => {
-        attempts++;
-        if (attempts > 40) { clearInterval(poll); setConnecting(false); return; }
+      if (isCli) {
+        // CLI backends just need config written — no OAuth
+        const res = await fetch("http://localhost:17700/settings");
+        const cfg = await res.json();
+        const providers = cfg.providers || {};
+        providers[name] = {
+          kind: name,
+          auth_type: "cli",
+          model: providerModels[name]?.[0] || "",
+        };
+        await fetch("http://localhost:17700/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...cfg, providers, active_provider: name }),
+        });
+        setConnecting(false);
+        onRefresh();
+      } else {
+        const { auth_url } = await startAuth(name);
         try {
-          const res = await fetch("http://localhost:17700/settings");
-          const cfg = await res.json();
-          if (cfg.providers && cfg.providers[name]) {
-            clearInterval(poll);
-            setConnecting(false);
-            onRefresh();
-          }
-        } catch { /* daemon may be busy */ }
-      }, 3000);
+          const { open } = await import("@tauri-apps/plugin-shell");
+          await open(auth_url);
+        } catch {
+          window.open(auth_url, "_blank");
+        }
+        let attempts = 0;
+        const poll = setInterval(async () => {
+          attempts++;
+          if (attempts > 40) { clearInterval(poll); setConnecting(false); return; }
+          try {
+            const res = await fetch("http://localhost:17700/settings");
+            const cfg = await res.json();
+            if (cfg.providers && cfg.providers[name]) {
+              clearInterval(poll);
+              setConnecting(false);
+              onRefresh();
+            }
+          } catch { /* daemon may be busy */ }
+        }, 3000);
+      }
     } catch (e) {
       console.error(e);
       setConnecting(false);
@@ -60,10 +81,13 @@ function ProviderCard({ name, status, connected, currentModel, onRefresh }: {
       <div className="flex items-center justify-between">
         <div>
           <div className="text-sm font-medium" style={{ color: "var(--navy)" }}>
-            {name.charAt(0).toUpperCase() + name.slice(1)}
+            {name === "codex_cli" ? "Codex CLI" : name === "claude_cli" ? "Claude CLI" : name.charAt(0).toUpperCase() + name.slice(1)}
           </div>
           <div className="text-xs mt-0.5" style={{ color: "var(--navy-muted)" }}>
-            {name === "anthropic" ? "Extra usage billing" : name === "openai" ? "Subscription credits" : "Per-token billing"}
+            {name === "codex_cli" ? "Uses your Codex login (subscription)" :
+             name === "claude_cli" ? "Uses your Claude login" :
+             name === "anthropic" ? "Extra usage billing" :
+             name === "openai" ? "API key billing" : "Per-token billing"}
           </div>
         </div>
         <div className="flex gap-2">
@@ -86,7 +110,7 @@ function ProviderCard({ name, status, connected, currentModel, onRefresh }: {
               color: connected ? "#2E7D32" : "var(--navy)",
             }}
           >
-            {connecting ? "Connecting..." : connected ? "Connected" : "Sign in"}
+            {connecting ? "..." : connected ? (isActive ? "Active" : "Connected") : isCli ? "Use" : "Sign in"}
           </button>
         </div>
       </div>
@@ -400,6 +424,10 @@ export default function Settings() {
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {tab === "providers" && (
           <div className="flex flex-col gap-2">
+            <div className="text-xs font-medium mb-1" style={{ color: "var(--navy-muted)" }}>CLI Backends (use your existing login)</div>
+            <ProviderCard name="codex_cli" status={status} connected={"codex_cli" in connectedProviders} currentModel={connectedProviders["codex_cli"]?.model} onRefresh={refreshStatus} />
+            <ProviderCard name="claude_cli" status={status} connected={"claude_cli" in connectedProviders} currentModel={connectedProviders["claude_cli"]?.model} onRefresh={refreshStatus} />
+            <div className="text-xs font-medium mb-1 mt-3" style={{ color: "var(--navy-muted)" }}>API Keys & OAuth</div>
             <ProviderCard name="openai" status={status} connected={"openai" in connectedProviders} currentModel={connectedProviders["openai"]?.model} onRefresh={refreshStatus} />
             <ProviderCard name="anthropic" status={status} connected={"anthropic" in connectedProviders} currentModel={connectedProviders["anthropic"]?.model} onRefresh={refreshStatus} />
             <ProviderCard name="openrouter" status={status} connected={"openrouter" in connectedProviders} currentModel={connectedProviders["openrouter"]?.model} onRefresh={refreshStatus} />

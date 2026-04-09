@@ -32,7 +32,7 @@ impl OAuthManager {
             authorize_url: "https://auth.openai.com/oauth/authorize".to_string(),
             token_url: "https://auth.openai.com/oauth/token".to_string(),
             client_id: "app_EMoamEEZ73f0CkXaXp7hrann".to_string(),
-            scopes: "openid profile email offline_access api.connectors.read api.connectors.invoke".to_string(),
+            scopes: "openid profile email offline_access".to_string(),
         });
         providers.insert("anthropic".to_string(), OAuthProviderConfig {
             authorize_url: "https://platform.claude.com/oauth/authorize".to_string(),
@@ -145,32 +145,42 @@ impl OAuthManager {
                 }
             };
 
-            // Read the HTTP request
             use tokio::io::{AsyncReadExt, AsyncWriteExt};
-            let mut buf = [0u8; 4096];
+
+            // May need to accept multiple connections (browser sends favicon, etc.)
+            // Keep accepting until we get one with a code parameter or timeout
             let mut stream = stream;
+            let mut buf = [0u8; 8192];
             let n = stream.read(&mut buf).await.unwrap_or(0);
             let request = String::from_utf8_lossy(&buf[..n]);
 
-            // Extract code from GET /auth/callback?code=...
-            let code = request.lines().next()
-                .and_then(|line| line.split('?').nth(1))
+            // Extract code from the HTTP request
+            // Request line looks like: GET /auth/callback?code=xxx&state=yyy HTTP/1.1
+            let first_line = request.lines().next().unwrap_or("");
+            tracing::info!("OAuth callback received: {}", &first_line[..first_line.len().min(200)]);
+
+            // Extract query string from the request path
+            let code = first_line.split_whitespace().nth(1) // Get the path: /auth/callback?code=xxx
+                .and_then(|path| path.split('?').nth(1)) // Get query: code=xxx&state=yyy
                 .and_then(|qs| {
-                    qs.split('&').find_map(|param| {
-                        let mut parts = param.split('=');
-                        if parts.next() == Some("code") {
-                            // Handle the code which might have trailing " HTTP/1.1"
-                            parts.next().map(|v| v.split_whitespace().next().unwrap_or(v).to_string())
-                        } else {
-                            None
+                    // Parse query params properly
+                    for param in qs.split('&') {
+                        if let Some(value) = param.strip_prefix("code=") {
+                            let decoded = urlencoding::decode(value).unwrap_or(std::borrow::Cow::Borrowed(value));
+                            return Some(decoded.to_string());
                         }
-                    })
+                    }
+                    None
                 });
 
             let code = match code {
-                Some(c) => c,
-                None => {
-                    let response = "HTTP/1.1 400 Bad Request\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Missing code parameter</h1></body></html>";
+                Some(c) if !c.is_empty() => c,
+                _ => {
+                    tracing::error!("OAuth callback: no code parameter found in: {}", first_line);
+                    let response = format!(
+                        "HTTP/1.1 400 Bad Request\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Missing code parameter</h1><p>Request: {}</p></body></html>",
+                        first_line.chars().take(200).collect::<String>()
+                    );
                     let _ = stream.write_all(response.as_bytes()).await;
                     return;
                 }
@@ -216,27 +226,71 @@ impl OAuthManager {
                             let refresh_token = data.get("refresh_token").and_then(|t| t.as_str()).map(|s| s.to_string());
                             let id_token = data.get("id_token").and_then(|t| t.as_str()).map(|s| s.to_string());
 
-                            // OpenAI: exchange id_token for API key
+                            // OpenAI: exchange id_token for API key (bills to subscription)
                             if provider_name_owned == "openai" {
+                                tracing::info!("OpenAI: id_token present: {}", id_token.is_some());
                                 if let Some(ref idt) = id_token {
-                                    let api_key_resp = http.post(&token_url)
-                                        .form(&[
-                                            ("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange"),
-                                            ("client_id", &client_id),
-                                            ("requested_token", "openai-api-key"),
-                                            ("subject_token", idt),
-                                            ("subject_token_type", "urn:ietf:params:oauth:token-type:id_token"),
-                                        ])
+                                    // Decode id_token to extract organization info
+                                    let org_id = {
+                                        let parts: Vec<&str> = idt.split('.').collect();
+                                        if parts.len() >= 2 {
+                                            use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+                                            let mut payload = parts[1].to_string();
+                                            // Pad base64 if needed
+                                            while payload.len() % 4 != 0 { payload.push('='); }
+                                            URL_SAFE_NO_PAD.decode(&payload).ok()
+                                                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                                                .and_then(|claims| {
+                                                    tracing::info!("OpenAI id_token claims keys: {:?}", claims.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+                                                    // Try organization_id directly or from organizations array
+                                                    claims.get("organization_id").and_then(|o| o.as_str()).map(|s| s.to_string())
+                                                        .or_else(|| {
+                                                            claims.get("organizations").and_then(|o| o.as_array())
+                                                                .and_then(|orgs| orgs.first())
+                                                                .and_then(|org| org.get("id").or_else(|| org.get("organization_id")))
+                                                                .and_then(|id| id.as_str())
+                                                                .map(|s| s.to_string())
+                                                        })
+                                                })
+                                        } else { None }
+                                    };
+
+                                    tracing::info!("OpenAI: org_id from id_token: {:?}", org_id);
+
+                                    // Build token exchange request
+                                    let mut form_params = vec![
+                                        ("grant_type".to_string(), "urn:ietf:params:oauth:grant-type:token-exchange".to_string()),
+                                        ("client_id".to_string(), client_id.clone()),
+                                        ("requested_token".to_string(), "openai-api-key".to_string()),
+                                        ("subject_token".to_string(), idt.clone()),
+                                        ("subject_token_type".to_string(), "urn:ietf:params:oauth:token-type:id_token".to_string()),
+                                    ];
+                                    if let Some(ref oid) = org_id {
+                                        form_params.push(("organization_id".to_string(), oid.clone()));
+                                    }
+
+                                    match http.post(&token_url)
+                                        .form(&form_params)
                                         .send()
-                                        .await;
-                                    if let Ok(r) = api_key_resp {
-                                        if let Ok(key_data) = r.json::<serde_json::Value>().await {
-                                            if let Some(key) = key_data.get("access_token").and_then(|t| t.as_str()) {
-                                                access_token = key.to_string();
-                                                tracing::info!("OpenAI: obtained API key via token exchange");
+                                        .await
+                                    {
+                                        Ok(r) => {
+                                            let status = r.status();
+                                            let body = r.text().await.unwrap_or_default();
+                                            tracing::info!("OpenAI token exchange: {} {}", status, &body[..body.len().min(300)]);
+                                            if status.is_success() {
+                                                if let Ok(key_data) = serde_json::from_str::<serde_json::Value>(&body) {
+                                                    if let Some(key) = key_data.get("access_token").and_then(|t| t.as_str()) {
+                                                        access_token = key.to_string();
+                                                        tracing::info!("OpenAI: got API key (prefix: {}...)", &access_token[..access_token.len().min(12)]);
+                                                    }
+                                                }
                                             }
                                         }
+                                        Err(e) => tracing::error!("OpenAI token exchange failed: {}", e),
                                     }
+                                } else {
+                                    tracing::warn!("OpenAI: no id_token, cannot exchange for API key");
                                 }
                             }
 

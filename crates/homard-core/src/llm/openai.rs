@@ -132,4 +132,101 @@ impl OpenAiProvider {
 
         Ok(LlmResponse { content, tool_calls })
     }
+
+    /// Use the OpenAI Responses API (for OAuth/subscription billing)
+    pub async fn responses(
+        http: &reqwest::Client,
+        base_url: &str,
+        token: &str,
+        model: &str,
+        messages: &[ChatMessage],
+        tools: &[ToolSchema],
+    ) -> Result<LlmResponse> {
+        let url = format!("{}/responses", base_url);
+
+        // Build input — combine system prompt and conversation into a single input
+        // The Responses API takes "input" as either a string or array of messages
+        let input: Vec<serde_json::Value> = messages.iter().map(|m| {
+            let mut msg = serde_json::json!({
+                "role": m.role,
+                "content": m.content,
+            });
+            if let Some(ref tc_id) = m.tool_call_id {
+                msg["tool_call_id"] = serde_json::json!(tc_id);
+            }
+            if let Some(ref tcs) = m.tool_calls {
+                let tool_calls: Vec<serde_json::Value> = tcs.iter().map(|tc| {
+                    serde_json::json!({
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": tc.arguments.to_string(),
+                        }
+                    })
+                }).collect();
+                msg["tool_calls"] = serde_json::json!(tool_calls);
+            }
+            msg
+        }).collect();
+
+        // Build tools array (same format as chat/completions)
+        let tool_defs: Vec<serde_json::Value> = tools.iter().map(|t| {
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                }
+            })
+        }).collect();
+
+        let mut body = serde_json::json!({
+            "model": model,
+            "input": input,
+        });
+        if !tool_defs.is_empty() {
+            body["tools"] = serde_json::json!(tool_defs);
+        }
+
+        let response = Self::send_with_retry(http, &url, token, &body, 3).await?;
+        Self::parse_responses_response(&response)
+    }
+
+    fn parse_responses_response(data: &serde_json::Value) -> Result<LlmResponse> {
+        // Responses API returns { output: [ { type: "message", content: [...] } ] }
+        let output = data.get("output")
+            .and_then(|o| o.as_array())
+            .ok_or_else(|| HomardError::Llm(format!("Invalid responses API response: {}", serde_json::to_string(data).unwrap_or_default().chars().take(200).collect::<String>())))?;
+
+        let mut content = String::new();
+        let mut tool_calls = Vec::new();
+
+        for item in output {
+            match item.get("type").and_then(|t| t.as_str()) {
+                Some("message") => {
+                    if let Some(parts) = item.get("content").and_then(|c| c.as_array()) {
+                        for part in parts {
+                            if part.get("type").and_then(|t| t.as_str()) == Some("output_text") {
+                                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                    content.push_str(text);
+                                }
+                            }
+                        }
+                    }
+                }
+                Some("function_call") => {
+                    let id = item.get("call_id").and_then(|i| i.as_str()).unwrap_or("").to_string();
+                    let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                    let args_str = item.get("arguments").and_then(|a| a.as_str()).unwrap_or("{}");
+                    let arguments: serde_json::Value = serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
+                    tool_calls.push(ToolCall { id, name, arguments });
+                }
+                _ => {}
+            }
+        }
+
+        Ok(LlmResponse { content, tool_calls })
+    }
 }

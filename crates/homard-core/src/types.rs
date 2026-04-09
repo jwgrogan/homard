@@ -37,6 +37,8 @@ pub enum ProviderKind {
     Openai,
     Anthropic,
     Openrouter,
+    CodexCli,
+    ClaudeCli,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
