@@ -2,6 +2,11 @@ use crate::types::*;
 use crate::error::{HomardError, Result};
 use super::client::LlmResponse;
 
+fn shell_escape(s: &str) -> String {
+    // Wrap in single quotes, escaping any single quotes in the string
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 pub struct CliBackend;
 
 impl CliBackend {
@@ -72,18 +77,16 @@ impl CliBackend {
             )));
         }
 
-        let mut cmd = tokio::process::Command::new(binary);
+        // Run CLI via sh -c with echo piped to stdin (codex needs stdin closed)
+        let shell_cmd = if binary == "claude" {
+            format!("echo '' | claude -p {} --output-format text", shell_escape(prompt))
+        } else {
+            format!("echo '' | codex exec {}", shell_escape(prompt))
+        };
 
-        if binary == "claude" {
-            // claude -p "prompt" --output-format text
-            cmd.arg("-p").arg(prompt)
-                .arg("--output-format").arg("text");
-        } else if binary == "codex" {
-            // codex exec "prompt"
-            cmd.arg("exec").arg(prompt);
-        }
-
-        cmd.stdout(std::process::Stdio::piped())
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.arg("-c").arg(&shell_cmd)
+            .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
         let child = cmd.spawn()
