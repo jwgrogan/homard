@@ -2,6 +2,35 @@ use crate::types::*;
 use crate::error::{HomardError, Result};
 use super::client::LlmResponse;
 
+/// Strip ANSI escape codes and control characters from CLI output
+fn strip_ansi(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // Skip escape sequence: ESC [ ... final_byte
+            if chars.peek() == Some(&'[') {
+                chars.next(); // consume '['
+                while let Some(&next) = chars.peek() {
+                    chars.next();
+                    if next.is_ascii_alphabetic() || next == '~' {
+                        break;
+                    }
+                }
+            }
+        } else if c == '\r' {
+            // Skip carriage returns (progress bars)
+            continue;
+        } else if c.is_control() && c != '\n' && c != '\t' {
+            // Skip other control characters
+            continue;
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 fn shell_escape(s: &str) -> String {
     // Wrap in single quotes, escaping any single quotes in the string
     format!("'{}'", s.replace('\'', "'\\''"))
@@ -30,32 +59,26 @@ impl CliBackend {
         })
     }
 
-    /// Build a single prompt string from the message history
-    fn build_prompt(messages: &[ChatMessage], tools: &[ToolSchema]) -> String {
+    /// Build a prompt for the CLI backend.
+    /// Only sends the system prompt (identity) and the last user message.
+    /// The CLI has its own context management — don't overwhelm it.
+    fn build_prompt(messages: &[ChatMessage], _tools: &[ToolSchema]) -> String {
         let mut parts = Vec::new();
 
-        for msg in messages {
-            match msg.role.as_str() {
-                "system" => parts.push(msg.content.clone()),
-                "user" => parts.push(format!("User: {}", msg.content)),
-                "assistant" => {
-                    if !msg.content.is_empty() {
-                        parts.push(format!("Assistant: {}", msg.content));
-                    }
-                }
-                "tool" => {
-                    parts.push(format!("Tool result: {}", msg.content));
-                }
-                _ => {}
-            }
+        // Include system prompt (identity files) but truncated
+        if let Some(sys) = messages.iter().find(|m| m.role == "system") {
+            // Take first 500 chars of system prompt to set identity
+            let truncated = if sys.content.len() > 500 {
+                format!("{}...", &sys.content[..500])
+            } else {
+                sys.content.clone()
+            };
+            parts.push(truncated);
         }
 
-        // Add tool descriptions so the CLI knows what's available
-        if !tools.is_empty() {
-            parts.push("\nAvailable tools (respond with JSON tool calls if needed):".to_string());
-            for tool in tools {
-                parts.push(format!("- {}: {}", tool.name, tool.description));
-            }
+        // Include last user message only
+        if let Some(user_msg) = messages.iter().rev().find(|m| m.role == "user") {
+            parts.push(user_msg.content.clone());
         }
 
         parts.join("\n\n")
@@ -99,16 +122,16 @@ impl CliBackend {
             .map_err(|_| HomardError::Llm(format!("{} timed out after 5 minutes", binary)))?
             .map_err(|e| HomardError::Llm(format!("{} failed: {}", binary, e)))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = strip_ansi(&String::from_utf8_lossy(&output.stdout));
+        let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
 
         if output.status.success() {
-            if stdout.trim().is_empty() {
-                // Some CLIs output to stderr
-                Ok(if stderr.trim().is_empty() { "(no output)".to_string() } else { stderr })
+            let text = if stdout.trim().is_empty() {
+                if stderr.trim().is_empty() { "(no output)".to_string() } else { stderr.trim().to_string() }
             } else {
-                Ok(stdout)
-            }
+                stdout.trim().to_string()
+            };
+            Ok(text)
         } else {
             Err(HomardError::Llm(format!("{} exited with error: {}", binary, stderr)))
         }
