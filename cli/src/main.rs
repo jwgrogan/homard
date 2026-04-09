@@ -29,13 +29,18 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
+    eprintln!("[homard] starting...");
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Serve => {
+            eprintln!("[homard] serve command starting...");
             let dirs = homard_core::config::HomardDirs::default_path();
             dirs.ensure_all()?;
+            eprintln!("[homard] dirs initialized");
 
             // Copy default identity files if not present
             let defaults_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../defaults");
@@ -50,18 +55,29 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
 
+            eprintln!("[homard] loading config...");
             let config = homard_core::config::HomardConfig::load_or_default(&dirs.config_path());
+            eprintln!("[homard] config loaded, active_provider={}", config.active_provider);
             let store = Arc::new(tokio::sync::Mutex::new(
                 homard_core::store::Store::open(&dirs.db_path())?,
             ));
 
+            eprintln!("[homard] store opened");
             // Initialize OAuth manager
+            eprintln!("[homard] creating oauth manager...");
             let oauth = Arc::new(homard_core::llm::oauth::OAuthManager::new());
+            eprintln!("[homard] oauth manager created, loading keychain tokens...");
             // Load tokens from Keychain
             for provider_name in config.providers.keys() {
-                let _ = oauth.load_from_keychain(provider_name).await;
+                eprintln!("[homard] loading keychain for provider: {}", provider_name);
+                match oauth.load_from_keychain(provider_name).await {
+                    Ok(found) => eprintln!("[homard]   -> found: {}", found),
+                    Err(e) => eprintln!("[homard]   -> error: {}", e),
+                }
             }
+            eprintln!("[homard] keychain loading complete");
 
+            eprintln!("[homard] oauth initialized");
             // Initialize LLM client
             let llm = Arc::new(homard_core::llm::client::LlmClient::new(
                 config.providers.clone(),
@@ -231,11 +247,7 @@ async fn main() -> anyhow::Result<()> {
 
                 // Signal agent loop to stop
                 let _ = shutdown_stop.send(true);
-
-                // Give it a few seconds to finish current work
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                tracing::info!("Shutdown complete.");
-                std::process::exit(0);
+                tracing::info!("Shutdown signal sent. Daemon will stop after current work completes.");
             });
 
             // Create API state
@@ -264,7 +276,7 @@ async fn main() -> anyhow::Result<()> {
             }
 
             // Start API server
-            tracing::info!("Starting Homard daemon...");
+            eprintln!("[homard] all initialized, starting API server on :17700...");
             homard_core::api::serve(api_state, 17700).await
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
         }

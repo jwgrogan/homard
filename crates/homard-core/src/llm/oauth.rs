@@ -550,18 +550,32 @@ impl OAuthManager {
         #[cfg(target_os = "macos")]
         {
             let service = format!("homard.{}", provider_name);
-            if let Some(json_str) = crate::keychain::read_secret(&service, "oauth_tokens")? {
-                if let Ok(data) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                    let tokens = OAuthTokens {
-                        access_token: data.get("access_token").and_then(|t| t.as_str()).unwrap_or("").to_string(),
-                        refresh_token: data.get("refresh_token").and_then(|t| t.as_str()).map(|s| s.to_string()),
-                        expires_at: data.get("expires_at").and_then(|e| e.as_str())
-                            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                            .map(|d| d.with_timezone(&chrono::Utc)),
-                    };
-                    self.tokens.write().await.insert(provider_name.to_string(), tokens);
-                    return Ok(true);
+            // Defensive: catch any panics from keychain access (corrupt data, etc.)
+            let json_result = std::panic::catch_unwind(|| {
+                crate::keychain::read_secret(&service, "oauth_tokens")
+            });
+            let json_str = match json_result {
+                Ok(Ok(Some(s))) => s,
+                Ok(Ok(None)) => return Ok(false),
+                Ok(Err(e)) => {
+                    tracing::warn!("Keychain read error for {}: {}", provider_name, e);
+                    return Ok(false);
                 }
+                Err(_) => {
+                    tracing::warn!("Keychain read panicked for {}, skipping", provider_name);
+                    return Ok(false);
+                }
+            };
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                let tokens = OAuthTokens {
+                    access_token: data.get("access_token").and_then(|t| t.as_str()).unwrap_or("").to_string(),
+                    refresh_token: data.get("refresh_token").and_then(|t| t.as_str()).map(|s| s.to_string()),
+                    expires_at: data.get("expires_at").and_then(|e| e.as_str())
+                        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                        .map(|d| d.with_timezone(&chrono::Utc)),
+                };
+                self.tokens.write().await.insert(provider_name.to_string(), tokens);
+                return Ok(true);
             }
             Ok(false)
         }

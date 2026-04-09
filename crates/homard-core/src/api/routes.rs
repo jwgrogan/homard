@@ -24,8 +24,18 @@ pub async fn chat(
     Json(req): Json<ChatRequest>,
 ) -> std::result::Result<Json<ChatResponse>, (StatusCode, String)> {
     let channel = req.channel.unwrap_or_else(|| "chat".to_string());
-    let response = state.agent.run(&channel, &req.message, Trigger::Chat).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Catch any panics from the agent loop so the daemon never crashes
+    let result = tokio::task::spawn(async move {
+        state.agent.run(&channel, &req.message, Trigger::Chat).await
+    }).await;
+
+    let response = match result {
+        Ok(Ok(text)) => text,
+        Ok(Err(e)) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+        Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Agent panicked: {}", e))),
+    };
+
     Ok(Json(ChatResponse { response, run_id: String::new() }))
 }
 
