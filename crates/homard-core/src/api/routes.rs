@@ -191,7 +191,7 @@ pub async fn auth_callback(
         let verifier = state.oauth.take_verifier(&provider).await
             .ok_or_else(|| "No pending auth flow".to_string())?;
         let redirect_uri = format!("http://127.0.0.1:17700/auth/{}/callback", provider);
-        let tokens = state.oauth.exchange_code(&provider, &query.code, &verifier, &redirect_uri).await
+        let _tokens = state.oauth.exchange_code(&provider, &query.code, &verifier, &redirect_uri).await
             .map_err(|e| e.to_string())?;
 
         // Save provider config so the daemon knows about it

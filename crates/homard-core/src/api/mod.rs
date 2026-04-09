@@ -1,7 +1,7 @@
 pub mod routes;
 
 use std::sync::Arc;
-use axum::{Router, routing::{get, post, put, delete}};
+use axum::{Router, routing::{get, post, delete}};
 use axum::middleware;
 use axum::http::Request;
 use axum::response::Response;
