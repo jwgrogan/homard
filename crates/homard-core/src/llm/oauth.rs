@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use crate::error::{HomardError, Result};
 
@@ -18,8 +19,8 @@ pub struct OAuthProviderConfig {
 }
 
 pub struct OAuthManager {
-    tokens: RwLock<HashMap<String, OAuthTokens>>,
-    pending_verifiers: RwLock<HashMap<String, String>>,
+    tokens: Arc<RwLock<HashMap<String, OAuthTokens>>>,
+    pending_verifiers: Arc<RwLock<HashMap<String, String>>>,
     providers: HashMap<String, OAuthProviderConfig>,
     http: reqwest::Client,
 }
@@ -41,8 +42,8 @@ impl OAuthManager {
         });
 
         Self {
-            tokens: RwLock::new(HashMap::new()),
-            pending_verifiers: RwLock::new(HashMap::new()),
+            tokens: Arc::new(RwLock::new(HashMap::new())),
+            pending_verifiers: Arc::new(RwLock::new(HashMap::new())),
             providers,
             http: reqwest::Client::new(),
         }
@@ -67,14 +68,20 @@ impl OAuthManager {
         (verifier, challenge)
     }
 
-    /// Start OAuth flow: returns (auth_url, callback_port)
+    /// Start OAuth flow: returns (auth_url, port). Spawns a temp callback server on an ephemeral port.
     pub async fn start_auth(&self, provider_name: &str) -> Result<(String, u16)> {
         let provider = self.providers.get(provider_name)
             .ok_or_else(|| HomardError::OAuth(format!("Unknown provider: {}", provider_name)))?;
 
         let (verifier, challenge) = Self::generate_pkce();
-        let port = 17700; // Use the daemon's own API port for the callback
-        let redirect_uri = format!("http://127.0.0.1:{}/auth/{}/callback", port, provider_name);
+
+        // Bind ephemeral port for callback
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await
+            .map_err(|e| HomardError::OAuth(format!("Failed to bind: {}", e)))?;
+        let port = listener.local_addr()
+            .map_err(|e| HomardError::OAuth(e.to_string()))?.port();
+
+        let redirect_uri = format!("http://127.0.0.1:{}/auth/callback", port);
 
         let auth_url = format!(
             "{}?client_id={}&redirect_uri={}&response_type=code&scope={}&code_challenge={}&code_challenge_method=S256",
@@ -85,8 +92,181 @@ impl OAuthManager {
             challenge,
         );
 
-        // Store verifier server-side
-        self.pending_verifiers.write().await.insert(provider_name.to_string(), verifier);
+        // Store verifier + redirect_uri for later exchange
+        self.pending_verifiers.write().await.insert(
+            provider_name.to_string(),
+            format!("{}||{}", verifier, redirect_uri),
+        );
+
+        // Spawn temp callback server
+        let provider_name_owned = provider_name.to_string();
+        let token_url = provider.token_url.clone();
+        let client_id = provider.client_id.clone();
+        let http = self.http.clone();
+        let tokens_store = self.tokens.clone();
+        let verifiers_store = self.pending_verifiers.clone();
+
+        tokio::spawn(async move {
+            // Accept one connection (the OAuth callback)
+            let timeout = tokio::time::timeout(
+                std::time::Duration::from_secs(300), // 5 min timeout
+                listener.accept(),
+            ).await;
+
+            let (stream, _) = match timeout {
+                Ok(Ok(v)) => v,
+                _ => {
+                    tracing::warn!("OAuth callback server timed out");
+                    return;
+                }
+            };
+
+            // Read the HTTP request
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let mut buf = [0u8; 4096];
+            let mut stream = stream;
+            let n = stream.read(&mut buf).await.unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..n]);
+
+            // Extract code from GET /auth/callback?code=...
+            let code = request.lines().next()
+                .and_then(|line| line.split('?').nth(1))
+                .and_then(|qs| {
+                    qs.split('&').find_map(|param| {
+                        let mut parts = param.split('=');
+                        if parts.next() == Some("code") {
+                            // Handle the code which might have trailing " HTTP/1.1"
+                            parts.next().map(|v| v.split_whitespace().next().unwrap_or(v).to_string())
+                        } else {
+                            None
+                        }
+                    })
+                });
+
+            let code = match code {
+                Some(c) => c,
+                None => {
+                    let response = "HTTP/1.1 400 Bad Request\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Missing code parameter</h1></body></html>";
+                    let _ = stream.write_all(response.as_bytes()).await;
+                    return;
+                }
+            };
+
+            // Get stored verifier + redirect_uri
+            let stored = verifiers_store.write().await.remove(&provider_name_owned);
+            let (verifier, redirect_uri) = match stored {
+                Some(s) => {
+                    let parts: Vec<&str> = s.splitn(2, "||").collect();
+                    if parts.len() == 2 {
+                        (parts[0].to_string(), parts[1].to_string())
+                    } else {
+                        let response = "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Invalid state</h1></body></html>";
+                        let _ = stream.write_all(response.as_bytes()).await;
+                        return;
+                    }
+                }
+                None => {
+                    let response = "HTTP/1.1 400 Bad Request\r\nContent-Type: text/html\r\n\r\n<html><body><h1>No pending auth flow</h1></body></html>";
+                    let _ = stream.write_all(response.as_bytes()).await;
+                    return;
+                }
+            };
+
+            // Exchange code for tokens
+            let resp = http.post(&token_url)
+                .form(&[
+                    ("grant_type", "authorization_code"),
+                    ("code", &code),
+                    ("redirect_uri", &redirect_uri),
+                    ("client_id", &client_id),
+                    ("code_verifier", &verifier),
+                ])
+                .send()
+                .await;
+
+            let (success, message) = match resp {
+                Ok(r) if r.status().is_success() => {
+                    match r.json::<serde_json::Value>().await {
+                        Ok(data) => {
+                            let access_token = data.get("access_token").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                            let refresh_token = data.get("refresh_token").and_then(|t| t.as_str()).map(|s| s.to_string());
+                            let expires_in = data.get("expires_in").and_then(|e| e.as_u64());
+                            let expires_at = expires_in.map(|secs| chrono::Utc::now() + chrono::Duration::seconds(secs as i64));
+
+                            let tokens = OAuthTokens { access_token, refresh_token, expires_at };
+                            tokens_store.write().await.insert(provider_name_owned.clone(), tokens.clone());
+
+                            // Save to Keychain
+                            #[cfg(target_os = "macos")]
+                            {
+                                let token_json = serde_json::json!({
+                                    "access_token": tokens.access_token,
+                                    "refresh_token": tokens.refresh_token,
+                                    "expires_at": tokens.expires_at,
+                                });
+                                let service = format!("homard.{}", provider_name_owned);
+                                let _ = crate::keychain::store_secret(&service, "oauth_tokens", &token_json.to_string());
+                            }
+
+                            // Save provider to config.json
+                            let dirs = crate::config::HomardDirs::default_path();
+                            let mut config = crate::config::HomardConfig::load_or_default(&dirs.config_path());
+                            let provider_config = crate::types::ProviderConfig {
+                                kind: match provider_name_owned.as_str() {
+                                    "openai" => crate::types::ProviderKind::Openai,
+                                    "anthropic" => crate::types::ProviderKind::Anthropic,
+                                    _ => crate::types::ProviderKind::Openai,
+                                },
+                                auth_type: "oauth_pkce".to_string(),
+                                client_id: None,
+                                token_keychain_ref: Some(format!("homard.{}.oauth_tokens", provider_name_owned)),
+                                api_key_keychain_ref: None,
+                                model: match provider_name_owned.as_str() {
+                                    "openai" => "gpt-5.4".to_string(),
+                                    "anthropic" => "claude-sonnet-4-6".to_string(),
+                                    _ => "gpt-5.4".to_string(),
+                                },
+                                base_url: None,
+                            };
+                            config.providers.insert(provider_name_owned.clone(), provider_config);
+                            if config.providers.len() == 1 || config.active_provider == "anthropic" && provider_name_owned == "openai" {
+                                config.active_provider = provider_name_owned.clone();
+                            }
+                            let _ = config.save(&dirs.config_path());
+
+                            tracing::info!("OAuth flow complete for {}", provider_name_owned);
+                            (true, format!("Connected to {}!", provider_name_owned))
+                        }
+                        Err(e) => (false, format!("Failed to parse token response: {}", e)),
+                    }
+                }
+                Ok(r) => {
+                    let body = r.text().await.unwrap_or_default();
+                    (false, format!("Token exchange failed: {}", body))
+                }
+                Err(e) => (false, format!("Token exchange error: {}", e)),
+            };
+
+            // Send HTML response to browser
+            let html = if success {
+                format!(
+                    r#"<html><head><style>body{{font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#FAF5ED;color:#1B2D4F}}.c{{text-align:center;padding:2rem;border-radius:1rem;background:#FDF8F0;border:1px solid #C2D1C8}}h1{{color:#E85D4A}}</style></head><body><div class="c"><h1>🦞 {}</h1><p>You can close this tab.</p></div></body></html>"#,
+                    message
+                )
+            } else {
+                format!(
+                    r#"<html><head><style>body{{font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#FAF5ED;color:#1B2D4F}}.c{{text-align:center;padding:2rem;border-radius:1rem;background:#FDF8F0;border:1px solid #C2D1C8}}h1{{color:#E85D4A}}</style></head><body><div class="c"><h1>Authentication Failed</h1><p>{}</p></div></body></html>"#,
+                    message
+                )
+            };
+
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                html.len(),
+                html
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        });
 
         Ok((auth_url, port))
     }
@@ -94,20 +274,19 @@ impl OAuthManager {
     /// Retrieve and consume a pending PKCE verifier for a provider
     pub async fn take_verifier(&self, provider_name: &str) -> Option<String> {
         self.pending_verifiers.write().await.remove(provider_name)
+            .map(|s| s.split("||").next().unwrap_or("").to_string())
     }
 
-    /// Exchange authorization code for tokens
+    /// Exchange authorization code for tokens (used by API callback route as fallback)
     pub async fn exchange_code(
         &self,
         provider_name: &str,
         code: &str,
         code_verifier: &str,
-        port: u16,
+        redirect_uri: &str,
     ) -> Result<OAuthTokens> {
         let provider = self.providers.get(provider_name)
             .ok_or_else(|| HomardError::OAuth(format!("Unknown provider: {}", provider_name)))?;
-
-        let redirect_uri = format!("http://127.0.0.1:{}/callback", port);
 
         let resp = self.http.post(&provider.token_url)
             .form(&[
