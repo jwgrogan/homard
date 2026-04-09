@@ -117,6 +117,37 @@ pub struct DaemonStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+pub enum CliType {
+    Claude,
+    Codex,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionStatus {
+    Running,
+    Complete,
+    Error,
+    Killed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliSession {
+    pub id: String,
+    pub cli: CliType,
+    pub prompt: String,
+    pub directory: String,
+    pub status: SessionStatus,
+    pub output: Option<String>,
+    pub error: Option<String>,
+    pub pid: Option<u32>,
+    pub started_at: DateTime<Utc>,
+    pub finished_at: Option<DateTime<Utc>>,
+    pub duration_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum ServerMode {
     On,
     Off,
@@ -124,4 +155,14 @@ pub enum ServerMode {
 
 impl Default for ServerMode {
     fn default() -> Self { Self::Off }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CronHealth {
+    pub name: String,
+    pub total_runs: i64,
+    pub successes: i64,
+    pub failures: i64,
+    pub last_run: Option<String>,
+    pub avg_duration_ms: Option<f64>,
 }

@@ -4,3 +4,4 @@ pub mod web;
 pub mod files;
 pub mod memory;
 pub mod user_profile;
+pub mod session;

@@ -104,6 +104,11 @@ pub async fn delete_schedule(
     StatusCode::OK
 }
 
+pub async fn cron_health(State(state): State<AppState>) -> std::result::Result<Json<Vec<crate::types::CronHealth>>, (StatusCode, String)> {
+    let store = state.store.lock().await;
+    store.get_cron_health().map(Json).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
 pub async fn get_settings(State(state): State<AppState>) -> Json<serde_json::Value> {
     let config = state.config.read().await;
     Json(serde_json::to_value(&*config).unwrap_or_default())
@@ -275,6 +280,32 @@ pub async fn set_server_mode(
 
         Ok(Json(serde_json::json!({"status": "off", "message": "Server mode disabled. Daemon will stop when you close it."})))
     }
+}
+
+pub async fn list_cli_sessions(State(state): State<AppState>) -> std::result::Result<Json<Vec<crate::types::CliSession>>, (StatusCode, String)> {
+    let store = state.store.lock().await;
+    let sessions = store.list_sessions(20).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(sessions))
+}
+
+pub async fn kill_cli_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> std::result::Result<StatusCode, (StatusCode, String)> {
+    let store = state.store.lock().await;
+    let sessions = store.get_running_sessions().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    drop(store);
+
+    let session = sessions.iter().find(|s| s.id.starts_with(&id))
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Session not found".to_string()))?;
+
+    if let Some(pid) = session.pid {
+        unsafe { libc::kill(pid as i32, libc::SIGTERM); }
+        let store = state.store.lock().await;
+        let _ = store.complete_session(&session.id, crate::types::SessionStatus::Killed, None, Some("Killed via API"));
+    }
+
+    Ok(StatusCode::OK)
 }
 
 pub async fn read_file(

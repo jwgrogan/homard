@@ -84,8 +84,9 @@ impl AgentLoop {
             store.save_message(channel, &user_msg)?;
         }
 
-        // Get tool schemas
-        let tool_schemas = self.tools.get_schemas();
+        // Get tool schemas (dynamically selected based on message)
+        let all_schemas = self.tools.get_schemas();
+        let tool_schemas = self.context.select_tools(user_message, &all_schemas);
 
         let mut iterations = 0u32;
         let mut hang_detector = HangDetector::new();

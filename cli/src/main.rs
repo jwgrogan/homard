@@ -122,6 +122,28 @@ async fn main() -> anyhow::Result<()> {
                     async move { homard_core::tools::user_profile::execute(args, dir).await }
                 });
             }
+            // Register CLI session tools
+            {
+                let store_clone = store.clone();
+                tools.register(homard_core::tools::session::spawn_schema(), move |args| {
+                    let s = store_clone.clone();
+                    async move { homard_core::tools::session::spawn(args, s).await }
+                });
+            }
+            {
+                let store_clone = store.clone();
+                tools.register(homard_core::tools::session::list_sessions_schema(), move |args| {
+                    let s = store_clone.clone();
+                    async move { homard_core::tools::session::list(args, s).await }
+                });
+            }
+            {
+                let store_clone = store.clone();
+                tools.register(homard_core::tools::session::kill_session_schema(), move |args| {
+                    let s = store_clone.clone();
+                    async move { homard_core::tools::session::kill(args, s).await }
+                });
+            }
             let tools = Arc::new(tools);
 
             // Stop signal
@@ -174,16 +196,43 @@ async fn main() -> anyhow::Result<()> {
             {
                 let sched_dirs = dirs.clone();
                 let sched_agent = agent.clone();
+                let sched_store = store.clone();
                 let sched_tg = telegram_client.clone();
                 let sched_cancel = tokio_util::sync::CancellationToken::new();
                 let cancel_clone = sched_cancel.clone();
 
                 tokio::spawn(async move {
                     homard_core::scheduler::cron::run_scheduler(
-                        sched_dirs, sched_agent, sched_tg, cancel_clone,
+                        sched_dirs, sched_agent, sched_store, sched_tg, cancel_clone,
                     ).await;
                 });
             }
+
+            // Graceful shutdown handler
+            let shutdown_stop = stop_tx.clone();
+            tokio::spawn(async move {
+                let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("failed to register SIGTERM handler");
+                let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+                    .expect("failed to register SIGINT handler");
+
+                tokio::select! {
+                    _ = sigterm.recv() => {
+                        tracing::info!("Received SIGTERM, shutting down gracefully...");
+                    }
+                    _ = sigint.recv() => {
+                        tracing::info!("Received SIGINT, shutting down gracefully...");
+                    }
+                }
+
+                // Signal agent loop to stop
+                let _ = shutdown_stop.send(true);
+
+                // Give it a few seconds to finish current work
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                tracing::info!("Shutdown complete.");
+                std::process::exit(0);
+            });
 
             // Create API state
             let api_state = homard_core::api::AppState {

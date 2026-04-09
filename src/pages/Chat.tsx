@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { marked } from "marked";
 import { sendChat, getConversation, type ChatMessage } from "../lib/api";
 
 function MessageBubble({ msg }: { msg: ChatMessage }) {
@@ -17,7 +18,10 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
           borderRadius: isUser ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
         }}
       >
-        <div className="whitespace-pre-wrap">{msg.content}</div>
+        <div
+          className="prose prose-sm max-w-none"
+          dangerouslySetInnerHTML={{ __html: marked.parse(msg.content, { breaks: true }) as string }}
+        />
         {msg.tool_calls && msg.tool_calls.length > 0 && (
           <div className="mt-1 text-xs opacity-70">
             {"\u{1F527}"} {msg.tool_calls.map((tc) => tc.name).join(", ")}

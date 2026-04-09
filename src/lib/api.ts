@@ -123,6 +123,48 @@ export async function writeFile(name: string, content: string): Promise<void> {
   });
 }
 
+export interface CliSession {
+  id: string;
+  cli: string;
+  prompt: string;
+  directory: string;
+  status: string;
+  pid?: number;
+  started_at: string;
+  finished_at?: string;
+  duration_ms?: number;
+  error?: string;
+}
+
+export interface CronHealthEntry {
+  name: string;
+  total_runs: number;
+  successes: number;
+  failures: number;
+  last_run?: string;
+  avg_duration_ms?: number;
+}
+
+export async function getSessions(): Promise<CliSession[]> {
+  try {
+    const res = await fetch(`${BASE}/sessions`);
+    if (!res.ok) return [];
+    return res.json();
+  } catch { return []; }
+}
+
+export async function killSession(id: string): Promise<void> {
+  await fetch(`${BASE}/sessions/${id}`, { method: "DELETE" });
+}
+
+export async function getCronHealth(): Promise<CronHealthEntry[]> {
+  try {
+    const res = await fetch(`${BASE}/cron/health`);
+    if (!res.ok) return [];
+    return res.json();
+  } catch { return []; }
+}
+
 export async function getServerMode(): Promise<{ mode: string; launchd_installed: boolean }> {
   const res = await fetch(`${BASE}/server`);
   return res.json();

@@ -5,6 +5,7 @@ use tracing::{info, warn, error};
 use crate::agent::r#loop::AgentLoop;
 use crate::config::HomardDirs;
 use crate::schedule::list_schedules;
+use crate::store::Store;
 use crate::telegram::client::TelegramClient;
 use crate::types::Trigger;
 
@@ -12,6 +13,7 @@ use crate::types::Trigger;
 pub async fn run_scheduler(
     dirs: HomardDirs,
     agent: Arc<AgentLoop>,
+    store: Arc<tokio::sync::Mutex<Store>>,
     telegram_client: Option<Arc<TelegramClient>>,
     cancel: CancellationToken,
 ) {
@@ -49,10 +51,20 @@ pub async fn run_scheduler(
                     info!("Running scheduled job: {} ({})", schedule.name, schedule.id);
                     last_runs.insert(schedule.id.clone(), now);
 
+                    // Track cron run
+                    let run_id = {
+                        let s = store.lock().await;
+                        s.insert_cron_run(&schedule.id, &schedule.name).unwrap_or(0)
+                    };
+
                     // Run through agent loop
                     let channel = format!("cron_{}", schedule.name.to_lowercase().replace(' ', "_"));
                     match agent.run(&channel, &schedule.message, Trigger::Cron).await {
                         Ok(response) => {
+                            {
+                                let s = store.lock().await;
+                                let _ = s.complete_cron_run(run_id, true, None);
+                            }
                             // Deliver to configured channels
                             for delivery in &schedule.deliver_to {
                                 if delivery == "telegram" {
@@ -71,6 +83,10 @@ pub async fn run_scheduler(
                             }
                         }
                         Err(e) => {
+                            {
+                                let s = store.lock().await;
+                                let _ = s.complete_cron_run(run_id, false, Some(&e.to_string()));
+                            }
                             error!("Cron job '{}' failed: {}", schedule.name, e);
                             // Notify via telegram on failure too
                             if let Some(ref tg) = telegram_client {

@@ -22,3 +22,39 @@ body {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Markdown prose styles */
+.prose { line-height: 1.5; }
+.prose h1, .prose h2, .prose h3 { font-weight: 600; margin: 0.5em 0 0.25em; }
+.prose h1 { font-size: 1.1em; }
+.prose h2 { font-size: 1em; }
+.prose h3 { font-size: 0.95em; }
+.prose p { margin: 0.25em 0; }
+.prose ul, .prose ol { margin: 0.25em 0; padding-left: 1.25em; }
+.prose li { margin: 0.1em 0; }
+.prose code {
+  background: var(--navy);
+  color: var(--cream-card);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+.prose pre {
+  background: var(--navy);
+  color: var(--cream-card);
+  padding: 0.75em;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.prose pre code {
+  background: none;
+  padding: 0;
+}
+.prose a { color: var(--coral); text-decoration: underline; }
+.prose blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 0.75em;
+  margin: 0.5em 0;
+  color: var(--navy-muted);
+}

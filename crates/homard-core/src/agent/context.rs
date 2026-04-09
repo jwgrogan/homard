@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use crate::error::Result;
-use crate::types::ChatMessage;
+use crate::types::{ChatMessage, ToolSchema};
 
 pub struct ContextBuilder {
     homard_dir: PathBuf,
@@ -56,5 +56,47 @@ impl ContextBuilder {
         // Last 4 always included
         windowed.extend_from_slice(&history[len - 4..]);
         windowed
+    }
+
+    /// Select relevant tools based on the user's message.
+    /// Always includes core tools, adds extras based on keywords.
+    pub fn select_tools(&self, message: &str, all_tools: &[ToolSchema]) -> Vec<ToolSchema> {
+        let lower = message.to_lowercase();
+
+        // Core tools always included
+        let core_tools = ["shell_exec", "file_read", "file_write", "memory_save", "memory_search"];
+
+        // Keyword -> tool name mappings
+        let keyword_tools: &[(&[&str], &str)] = &[
+            (&["search", "find", "look up", "google", "what is"], "web_search"),
+            (&["url", "http", "fetch", "website", "page", "link"], "web_fetch"),
+            (&["deploy", "build", "run", "code", "fix", "debug", "implement", "refactor", "test", "claude", "codex"], "spawn_session"),
+            (&["session", "running", "status", "check on"], "list_sessions"),
+            (&["kill", "stop", "cancel", "abort"], "kill_session"),
+            (&["remember", "note", "save", "memory", "learn"], "memory_save"),
+            (&["recall", "memory", "did i", "what was"], "memory_search"),
+            (&["profile", "my name", "about me", "i am", "i work"], "update_user_profile"),
+            (&["memory.md", "reorganize", "clean up memory", "prune"], "maintain_memory"),
+        ];
+
+        let mut selected_names: std::collections::HashSet<&str> = core_tools.iter().copied().collect();
+
+        for (keywords, tool_name) in keyword_tools {
+            if keywords.iter().any(|kw| lower.contains(kw)) {
+                selected_names.insert(tool_name);
+            }
+        }
+
+        // If message is long or complex, include more tools
+        if lower.len() > 200 || lower.contains("and") || lower.contains("then") {
+            for tool in all_tools {
+                selected_names.insert(&tool.name);
+            }
+        }
+
+        all_tools.iter()
+            .filter(|t| selected_names.contains(t.name.as_str()))
+            .cloned()
+            .collect()
     }
 }

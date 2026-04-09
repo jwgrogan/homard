@@ -3,9 +3,16 @@ import { getStatus, setPermissions, startAuth, generatePairingCode, getTelegramS
 
 type SettingsTab = "providers" | "permissions" | "telegram" | "identity" | "daemon";
 
+const providerModels: Record<string, string[]> = {
+  openai: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"],
+  anthropic: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"],
+  openrouter: ["anthropic/claude-sonnet-4-6", "openai/gpt-5.4"],
+};
+
 function ProviderCard({ name, status }: { name: string; status: DaemonStatus | null }) {
   const isActive = status?.active_provider === name;
   const [connecting, setConnecting] = useState(false);
+  const [model, setModel] = useState(status?.active_model || "");
 
   const handleConnect = async () => {
     setConnecting(true);
@@ -33,14 +40,26 @@ function ProviderCard({ name, status }: { name: string; status: DaemonStatus | n
             {name === "anthropic" ? "Extra usage billing" : name === "openai" ? "Subscription credits" : "Per-token billing"}
           </div>
         </div>
-        <button
-          onClick={handleConnect}
-          disabled={connecting}
-          className="px-3 py-1 rounded-lg text-xs font-medium transition-colors"
-          style={{ background: "var(--sage)", color: "var(--navy)" }}
-        >
-          {connecting ? "..." : "Sign in"}
-        </button>
+        <div className="flex gap-2">
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            className="text-xs rounded-lg px-2 py-1 outline-none"
+            style={{ background: "var(--sage)", color: "var(--navy)", border: "1px solid var(--border)" }}
+          >
+            {(providerModels[name] || []).map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleConnect}
+            disabled={connecting}
+            className="px-3 py-1 rounded-lg text-xs font-medium transition-colors"
+            style={{ background: "var(--sage)", color: "var(--navy)" }}
+          >
+            {connecting ? "..." : "Sign in"}
+          </button>
+        </div>
       </div>
     </div>
   );

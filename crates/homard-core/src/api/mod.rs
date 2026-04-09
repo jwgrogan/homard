@@ -27,6 +27,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/stop", post(routes::stop_run))
         .route("/status", get(routes::status))
         .route("/activity", get(routes::activity))
+        .route("/cron/health", get(routes::cron_health))
         .route("/schedules", get(routes::list_schedules).post(routes::create_schedule))
         .route("/schedules/{id}", delete(routes::delete_schedule))
         .route("/settings", get(routes::get_settings).put(routes::update_settings))
@@ -36,6 +37,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/telegram/pair", post(routes::telegram_pair))
         .route("/telegram/status", get(routes::telegram_status))
         .route("/server", get(routes::get_server_mode).put(routes::set_server_mode))
+        .route("/sessions", get(routes::list_cli_sessions))
+        .route("/sessions/{id}", delete(routes::kill_cli_session))
         .route("/files/{name}", get(routes::read_file).put(routes::write_file))
         .with_state(state)
 }
