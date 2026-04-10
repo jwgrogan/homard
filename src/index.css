@@ -18,7 +18,7 @@
 
 html, body {
   margin: 0;
-  background: transparent;
+  background: var(--cream);
   color: var(--navy);
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
   font-size: 13px;
@@ -28,10 +28,8 @@ html, body {
 
 #root {
   background: var(--cream);
-  border-radius: 10px;
   overflow: hidden;
   height: 100vh;
-  box-shadow: 0 12px 40px rgba(27, 45, 79, 0.15), 0 0 0 0.5px rgba(27, 45, 79, 0.1);
 }
 
 /* Interactive states */

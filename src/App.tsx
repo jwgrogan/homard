@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Chat from "./pages/Chat";
 import Activity from "./pages/Activity";
 import Settings from "./pages/Settings";
@@ -43,37 +43,18 @@ export default function App() {
     { id: "settings" as Tab, label: "Settings", Icon: SettingsIcon },
   ];
 
-  const handleDragStart = useCallback(async (e: React.MouseEvent) => {
-    // Only drag from the toolbar background, not buttons
-    if ((e.target as HTMLElement).closest('button')) return;
-    try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      await getCurrentWindow().startDragging();
-    } catch { /* not in Tauri */ }
-  }, []);
-
   return (
     <div className="flex flex-col h-screen">
-      {/* Toolbar — vibrancy blur */}
+      {/* Native title bar handles drag — just add our segmented control below it */}
+      {/* Top padding for macOS traffic lights (overlay title bar) */}
       <div
-        className="px-3 py-2 flex items-center justify-between border-b shrink-0 cursor-grab active:cursor-grabbing"
-        onMouseDown={handleDragStart}
-        style={{
-          borderColor: "var(--border)",
-          background: "rgba(232, 240, 236, 0.72)",
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
-        }}
+        className="pt-7 px-3 pb-1.5 flex items-center justify-center border-b shrink-0"
+        style={{ borderColor: "var(--border)" }}
       >
-        {/* Left: title */}
-        <span className="text-[11px] font-medium" style={{ color: "var(--navy-muted)" }}>
-          Homard
-        </span>
-
-        {/* Center: segmented control */}
+        {/* Segmented control */}
         <div
           className="flex gap-0.5 p-0.5 rounded-md"
-          style={{ background: "rgba(27, 45, 79, 0.06)", WebkitAppRegion: "no-drag" } as React.CSSProperties}
+          style={{ background: "rgba(27, 45, 79, 0.06)" }}
         >
           {tabs.map(({ id, label, Icon }) => (
             <button
@@ -92,9 +73,9 @@ export default function App() {
           ))}
         </div>
 
-        {/* Right: status dot */}
+        {/* Status dot */}
         <span
-          className="w-2 h-2 rounded-full"
+          className="w-2 h-2 rounded-full ml-2"
           style={{ background: daemonOnline ? "var(--success)" : "var(--error)" }}
         />
       </div>
