@@ -16,18 +16,8 @@ function Message({ msg }: { msg: ChatMessage }) {
         borderBottom: "0.5px solid var(--border)",
       }}
     >
-      {/* Role label */}
-      <div className="flex items-center gap-1.5 mb-1">
-        <span
-          className="w-4 h-4 rounded flex items-center justify-center text-[9px] font-bold"
-          style={{
-            background: isUser ? "var(--navy)" : "var(--coral)",
-            color: "white",
-          }}
-        >
-          {isUser ? "Y" : "H"}
-        </span>
-        <span className="text-[11px] font-medium" style={{ color: "var(--navy-muted)" }}>
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <span className="text-[11px] font-semibold" style={{ color: isUser ? "var(--navy)" : "var(--coral)" }}>
           {isUser ? "You" : "Homard"}
         </span>
         {msg.tool_calls && msg.tool_calls.length > 0 && (
@@ -105,21 +95,10 @@ export default function Chat() {
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {messages.length === 0 && !loading && (
-          <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-8">
-            {hasProvider === false ? (
-              <>
-                <p className="text-[13px] font-medium" style={{ color: "var(--navy)" }}>
-                  No provider configured
-                </p>
-                <p className="text-[11px]" style={{ color: "var(--navy-muted)" }}>
-                  Go to Settings &rarr; Providers
-                </p>
-              </>
-            ) : (
-              <p className="text-[13px]" style={{ color: "var(--navy-muted)" }}>
-                Start a conversation
-              </p>
-            )}
+          <div className="px-4 py-6">
+            <p className="text-[11px]" style={{ color: "var(--navy-muted)" }}>
+              {hasProvider === false ? "No provider configured. Go to Settings → Providers." : "No messages yet."}
+            </p>
           </div>
         )}
         {messages.map((msg, i) => (
@@ -127,44 +106,33 @@ export default function Chat() {
         ))}
         {loading && (
           <div className="px-4 py-2.5" style={{ background: "rgba(232, 240, 236, 0.4)", borderBottom: "0.5px solid var(--border)" }}>
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className="w-4 h-4 rounded flex items-center justify-center text-[9px] font-bold" style={{ background: "var(--coral)", color: "white" }}>H</span>
-              <span className="text-[11px] font-medium" style={{ color: "var(--navy-muted)" }}>Homard</span>
+            <span className="text-[11px] font-semibold" style={{ color: "var(--coral)" }}>Homard</span>
+            <div className="mt-0.5 flex gap-1">
+              <span className="w-1 h-1 rounded-full animate-bounce" style={{ background: "var(--navy-muted)", animationDelay: "0ms" }} />
+              <span className="w-1 h-1 rounded-full animate-bounce" style={{ background: "var(--navy-muted)", animationDelay: "150ms" }} />
+              <span className="w-1 h-1 rounded-full animate-bounce" style={{ background: "var(--navy-muted)", animationDelay: "300ms" }} />
             </div>
-            <span className="text-[13px] animate-pulse" style={{ color: "var(--navy-muted)" }}>Thinking...</span>
           </div>
         )}
       </div>
 
       {/* Input */}
-      <div className="px-3 py-2 border-t" style={{ borderColor: "var(--border)" }}>
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Message..."
-            rows={1}
-            className="flex-1 text-[13px] resize-none outline-none px-2.5 py-1.5 rounded-md"
-            style={{
-              background: "var(--cream-card)",
-              color: "var(--navy)",
-              border: "0.5px solid var(--border)",
-              maxHeight: "80px",
-            }}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || loading}
-            className="p-1.5 rounded-md transition-all disabled:opacity-25"
-            style={{ background: "var(--coral)", color: "white" }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M5 12h14M12 5l7 7-7 7"/>
-            </svg>
-          </button>
-        </div>
+      <div className="px-3 py-1.5 border-t" style={{ borderColor: "var(--border)", background: "rgba(232, 240, 236, 0.3)" }}>
+        <textarea
+          ref={inputRef}
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Message — press Return to send"
+          rows={1}
+          className="w-full text-[13px] resize-none outline-none px-2 py-1.5 rounded"
+          style={{
+            background: "white",
+            color: "var(--navy)",
+            border: "0.5px solid var(--border)",
+            maxHeight: "72px",
+          }}
+        />
       </div>
     </div>
   );

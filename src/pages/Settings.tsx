@@ -371,19 +371,20 @@ export default function Settings() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Settings sub-tabs */}
+      {/* Settings sub-tabs — macOS underline style */}
       <div
-        className="flex gap-0.5 px-3 py-1.5 p-0.5"
+        className="flex px-3"
         style={{ borderBottom: "0.5px solid var(--border)" }}
       >
         {tabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className="px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors"
+            className="px-2.5 py-1.5 text-[11px] font-medium transition-colors relative"
             style={{
-              background: tab === t.id ? "var(--navy)" : "transparent",
-              color: tab === t.id ? "var(--cream)" : "var(--navy-muted)",
+              color: tab === t.id ? "var(--navy)" : "var(--navy-muted)",
+              borderBottom: tab === t.id ? "2px solid var(--coral)" : "2px solid transparent",
+              marginBottom: "-0.5px",
             }}
           >
             {t.label}
