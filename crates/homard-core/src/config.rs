@@ -24,6 +24,8 @@ pub struct TelegramConfig {
     pub enabled: bool,
     pub token_keychain_ref: Option<String>,
     pub paired_chat_ids: Vec<String>,
+    #[serde(default)]
+    pub allowed_usernames: Vec<String>,
     pub throttle_ms: u64,
     #[serde(default)]
     pub pending_pairing_codes: Vec<PairingCode>,
@@ -35,6 +37,7 @@ impl Default for TelegramConfig {
             enabled: false,
             token_keychain_ref: None,
             paired_chat_ids: Vec::new(),
+            allowed_usernames: Vec::new(),
             throttle_ms: 0,
             pending_pairing_codes: Vec::new(),
         }

@@ -102,23 +102,33 @@ pub async fn run_poller(
                 };
 
                 let chat_id_str = chat_id.to_string();
-                let is_paired = config.telegram.paired_chat_ids.contains(&chat_id_str);
+
+                // Check if user is allowed — by username allowlist or paired chat ID
+                let username = match &update.kind {
+                    teloxide::types::UpdateKind::Message(msg) => {
+                        msg.from.as_ref().and_then(|u| u.username.clone()).unwrap_or_default()
+                    }
+                    _ => String::new(),
+                };
+
+                let is_allowed = config.telegram.paired_chat_ids.contains(&chat_id_str)
+                    || config.telegram.allowed_usernames.iter().any(|u| {
+                        let allowed = u.trim_start_matches('@').to_lowercase();
+                        username.to_lowercase() == allowed
+                    });
+
+                // Auto-pair allowed users on first message
+                if is_allowed && !config.telegram.paired_chat_ids.contains(&chat_id_str) {
+                    let _ = add_paired_chat(&dirs, &chat_id_str);
+                    info!("Telegram: auto-paired chat {} for allowed user @{}", chat_id, username);
+                }
 
                 match parse_command(&text) {
                     Some(Command::Start) => {
-                        // Auto-pair on /start — standard Telegram bot UX
-                        if is_paired {
-                            let _ = client.send_message(chat_id, "Already paired! Just send me a message and I'll respond.\n\nCommands: /status /stop /perms <level> /server on|off").await;
+                        if is_allowed {
+                            let _ = client.send_message(chat_id, "Hey! I'm Homard. Send me anything.\n\nCommands: /status /stop /perms <level> /server on|off").await;
                         } else {
-                            match add_paired_chat(&dirs, &chat_id_str) {
-                                Ok(()) => {
-                                    let _ = client.send_message(chat_id, "Paired! I'm Homard, your personal assistant. Send me anything and I'll help.\n\nCommands: /status /stop /perms <level> /server on|off").await;
-                                    info!("Telegram: chat {} auto-paired via /start", chat_id);
-                                }
-                                Err(e) => {
-                                    let _ = client.send_message(chat_id, &format!("Pairing failed: {}", e)).await;
-                                }
-                            }
+                            let _ = client.send_message(chat_id, "Not authorized. Add your username in Homard Settings → Telegram.").await;
                         }
                     }
                     Some(Command::Pair(code)) => {
@@ -146,10 +156,10 @@ pub async fn run_poller(
                             }
                         }
                     }
-                    Some(Command::Status) if is_paired => {
+                    Some(Command::Status) if is_allowed => {
                         let _ = client.send_message(chat_id, "Homard is running. Commands: /status /stop /perms <level> /server on|off").await;
                     }
-                    Some(Command::Stop) if is_paired => {
+                    Some(Command::Stop) if is_allowed => {
                         let _ = stop_tx.send(true);
                         let _ = client.send_message(chat_id, "Stop signal sent.").await;
                         // Reset stop after 1s
@@ -159,10 +169,10 @@ pub async fn run_poller(
                             let _ = tx.send(false);
                         });
                     }
-                    Some(Command::Perms(level)) if is_paired => {
+                    Some(Command::Perms(level)) if is_allowed => {
                         let _ = client.send_message(chat_id, &format!("Permission level set to: {} (restart daemon to apply)", level)).await;
                     }
-                    Some(Command::ServerOff) if is_paired => {
+                    Some(Command::ServerOff) if is_allowed => {
                         // Unload launchd plist
                         let home = dirs::home_dir().unwrap_or_default();
                         let plist = home.join("Library/LaunchAgents/com.homard.daemon.plist");
@@ -176,16 +186,16 @@ pub async fn run_poller(
                             let _ = client.send_message(chat_id, "Server mode is already off.").await;
                         }
                     }
-                    Some(Command::ServerOn) if is_paired => {
+                    Some(Command::ServerOn) if is_allowed => {
                         let _ = client.send_message(chat_id, "Use `homard install` from the CLI or the tray app to enable server mode.").await;
                     }
-                    Some(_) if !is_paired => {
+                    Some(_) if !is_allowed => {
                         let _ = client.send_message(chat_id, "Send /start to connect with Homard.").await;
                     }
-                    None if !is_paired => {
+                    None if !is_allowed => {
                         let _ = client.send_message(chat_id, "Send /start to connect.").await;
                     }
-                    None if is_paired => {
+                    None if is_allowed => {
                         // Route through agent loop (spawned concurrently to avoid blocking the poller)
                         let channel = format!("telegram_{}", chat_id);
                         // Send typing indicator

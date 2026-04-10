@@ -162,6 +162,90 @@ function PermissionsPanel() {
   );
 }
 
+function UsernameAllowlist() {
+  const [usernames, setUsernames] = useState<string[]>([]);
+  const [newUsername, setNewUsername] = useState("");
+
+  useEffect(() => {
+    apiFetch("/settings").then(r => r.json()).then(cfg => {
+      setUsernames(cfg.telegram?.allowed_usernames || []);
+    }).catch(() => {});
+  }, []);
+
+  const addUsername = async () => {
+    const name = newUsername.trim().replace(/^@/, "");
+    if (!name) return;
+    const updated = [...usernames, name];
+    setUsernames(updated);
+    setNewUsername("");
+    // Save to config
+    const res = await apiFetch("/settings");
+    const cfg = await res.json();
+    cfg.telegram = cfg.telegram || {};
+    cfg.telegram.allowed_usernames = updated;
+    await apiFetch("/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cfg),
+    });
+  };
+
+  const removeUsername = async (name: string) => {
+    const updated = usernames.filter(u => u !== name);
+    setUsernames(updated);
+    const res = await apiFetch("/settings");
+    const cfg = await res.json();
+    cfg.telegram = cfg.telegram || {};
+    cfg.telegram.allowed_usernames = updated;
+    await apiFetch("/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cfg),
+    });
+  };
+
+  return (
+    <div>
+      <div className="flex gap-1.5 mb-1.5">
+        <input
+          value={newUsername}
+          onChange={e => setNewUsername(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && addUsername()}
+          placeholder="@username"
+          className="flex-1 text-[11px] rounded px-2 py-1 outline-none"
+          style={{ background: "var(--cream)", color: "var(--navy)", border: "0.5px solid var(--border)" }}
+        />
+        <button
+          onClick={addUsername}
+          disabled={!newUsername.trim()}
+          className="px-2 py-1 rounded text-[11px] font-medium disabled:opacity-30"
+          style={{ background: "var(--sage)", color: "var(--navy)" }}
+        >
+          Add
+        </button>
+      </div>
+      {usernames.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {usernames.map(u => (
+            <span
+              key={u}
+              className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded"
+              style={{ background: "var(--sage)", color: "var(--navy)" }}
+            >
+              @{u}
+              <button onClick={() => removeUsername(u)} className="opacity-50 hover:opacity-100">&times;</button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[10px]" style={{ color: "var(--navy-muted)" }}>
+          No usernames added. Anyone who messages the bot will be ignored.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TelegramPanel() {
   const [botToken, setBotToken] = useState("");
   const [saving, setSaving] = useState(false);
@@ -244,9 +328,15 @@ function TelegramPanel() {
         </>
       ) : (
         <div className="px-3 py-2 text-[11px]" style={{ color: "var(--navy-muted)", borderBottom: "0.5px solid var(--border)" }}>
-          Bot is running. Send <code className="font-mono" style={{ color: "var(--coral)" }}>/start</code> in Telegram to pair new chats.
+          Bot connected. Messages from allowed usernames are accepted automatically.
         </div>
       )}
+
+      {/* Username allowlist */}
+      <div className="px-3 py-2" style={{ borderBottom: "0.5px solid var(--border)" }}>
+        <div className="text-[11px] font-medium mb-1" style={{ color: "var(--navy)" }}>Allowed Usernames</div>
+        <UsernameAllowlist />
+      </div>
 
       {message && (
         <div className="px-3 py-1.5 text-[11px]" style={{ background: "var(--sage)", color: "var(--navy)", borderBottom: "0.5px solid var(--border)" }}>
