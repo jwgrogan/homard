@@ -37,6 +37,22 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Set window title with user's name from IDENTITY.md or USER.md
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch("/files/USER.md");
+        const text = await res.text();
+        // Look for "Name: X" or first line after # that has a name
+        const nameMatch = text.match(/[Nn]ame:\s*(.+)/);
+        const name = nameMatch ? nameMatch[1].trim().split(" ")[0] : null;
+        if (name && name.length > 1) {
+          document.title = `${name}'s personal crustacean 🦞`;
+        }
+      } catch { /* keep default */ }
+    })();
+  }, []);
+
   const tabs = [
     { id: "chat" as Tab, label: "Chat", Icon: ChatIcon },
     { id: "activity" as Tab, label: "Activity", Icon: ActivityIcon },

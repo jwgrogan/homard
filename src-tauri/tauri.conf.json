@@ -12,7 +12,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Homard — your personal crustacean 🦞",
+        "title": "Homard 🦞",
         "width": 420,
         "height": 520,
         "resizable": true,
