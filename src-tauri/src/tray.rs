@@ -9,8 +9,15 @@ pub fn create_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
 
+    // Load tray icon (lobster claw silhouette)
+    let tray_icon = {
+        let icon_bytes = include_bytes!("../icons/tray-icon@2x.png");
+        tauri::image::Image::from_bytes(icon_bytes)?
+    };
+
     let _tray = TrayIconBuilder::new()
-        .icon(app.default_window_icon().unwrap().clone())
+        .icon(tray_icon)
+        .icon_as_template(true)  // macOS: system handles light/dark mode
         .menu(&menu)
         .tooltip("Homard")
         .on_menu_event(move |app, event| match event.id.as_ref() {
