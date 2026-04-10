@@ -3,3 +3,4 @@ pub mod openai;
 pub mod anthropic;
 pub mod oauth;
 pub mod cli_backend;
+pub mod codex_server;

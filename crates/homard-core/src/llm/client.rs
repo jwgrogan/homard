@@ -5,6 +5,7 @@ use crate::error::{HomardError, Result};
 use super::openai::OpenAiProvider;
 use super::anthropic::AnthropicProvider;
 use super::cli_backend::CliBackend;
+use super::codex_server::CodexServer;
 use super::oauth::OAuthManager;
 
 pub struct LlmResponse {
@@ -16,6 +17,7 @@ pub struct LlmClient {
     http: reqwest::Client,
     oauth: Arc<OAuthManager>,
     shared_config: Arc<tokio::sync::RwLock<HomardConfig>>,
+    codex_server: Arc<CodexServer>,
 }
 
 impl LlmClient {
@@ -33,6 +35,7 @@ impl LlmClient {
             http,
             oauth,
             shared_config,
+            codex_server: Arc::new(CodexServer::new()),
         }
     }
 
@@ -45,9 +48,13 @@ impl LlmClient {
         drop(config); // Release lock before making LLM call
 
         match provider_config.kind {
-            // CLI backends -- run codex/claude as subprocess (uses their own auth, bills to subscription)
+            // Codex: use persistent app-server (sub-second after first call)
             ProviderKind::CodexCli => {
-                CliBackend::codex_chat(messages, tools).await
+                let user_msg = messages.iter().rev()
+                    .find(|m| m.role == "user")
+                    .map(|m| m.content.as_str())
+                    .unwrap_or("");
+                self.codex_server.chat(user_msg).await
             }
             ProviderKind::ClaudeCli => {
                 CliBackend::claude_chat(messages, tools).await
