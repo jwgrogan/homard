@@ -206,31 +206,83 @@ pub async fn run_poller(
                     }
                     Some(Command::Claude(prompt)) if is_allowed => {
                         if prompt.is_empty() {
-                            let _ = client.send_message(chat_id, "Usage: /claude <prompt>\nExample: /claude fix the tests in site-factory").await;
+                            let _ = client.send_message(chat_id, "Usage: /claude <prompt> [--dir path]\nExample: /claude fix the tests in site-factory\nExample: /claude refactor auth --dir ~/GitHub/d1201\n\nLaunches a Claude Code session you manage from the terminal or Claude app.").await;
                         } else {
-                            let _ = client.send_message(chat_id, &format!("Starting Claude session: {}...", &prompt[..prompt.len().min(50)])).await;
+                            // Parse optional --dir flag
+                            let (task, dir) = if let Some(idx) = prompt.find("--dir") {
+                                let task = prompt[..idx].trim().to_string();
+                                let dir = prompt[idx+5..].trim().to_string();
+                                (task, if dir.is_empty() { ".".to_string() } else { dir })
+                            } else {
+                                (prompt.clone(), ".".to_string())
+                            };
+
+                            // Generate a session name from the prompt
+                            let name: String = task.split_whitespace()
+                                .take(4)
+                                .collect::<Vec<_>>()
+                                .join("-")
+                                .chars()
+                                .filter(|c| c.is_alphanumeric() || *c == '-')
+                                .take(30)
+                                .collect();
+
+                            let _ = client.send_message(
+                                chat_id,
+                                &format!("Launching Claude session '{}'\nDir: {}\n\nManage it:\n  claude --resume (terminal)\n  Or open Claude desktop app", name, dir)
+                            ).await;
+
                             let client_clone = client.clone();
+                            let name_clone = name.clone();
                             tokio::spawn(async move {
-                                let output = tokio::process::Command::new("sh")
-                                    .arg("-c")
-                                    .arg(&format!("echo '' | claude -p {} --output-format text", crate::llm::cli_backend::shell_escape_pub(&prompt)))
+                                // Launch Claude in background — user manages from Claude app
+                                let escaped = crate::llm::cli_backend::shell_escape_pub(&task);
+                                let dir_expanded = if dir.starts_with("~/") {
+                                    dirs::home_dir().map(|h| h.join(&dir[2..]).to_string_lossy().to_string()).unwrap_or(dir.clone())
+                                } else { dir.clone() };
+
+                                let child = tokio::process::Command::new("claude")
+                                    .arg("-p")
+                                    .arg(&task)
+                                    .arg("--name")
+                                    .arg(&name_clone)
+                                    .arg("--output-format")
+                                    .arg("text")
+                                    .current_dir(&dir_expanded)
+                                    .stdin(std::process::Stdio::null())
                                     .stdout(std::process::Stdio::piped())
                                     .stderr(std::process::Stdio::piped())
-                                    .output()
-                                    .await;
-                                match output {
-                                    Ok(o) if o.status.success() => {
-                                        let text = String::from_utf8_lossy(&o.stdout);
-                                        let clean = text.trim();
-                                        if clean.is_empty() {
-                                            let _ = client_clone.send_message(chat_id, "Claude session completed (no output).").await;
-                                        } else {
-                                            let _ = client_clone.chunk_and_send(chat_id, clean).await;
+                                    .spawn();
+
+                                match child {
+                                    Ok(child) => {
+                                        // Wait for completion in background
+                                        match tokio::time::timeout(
+                                            std::time::Duration::from_secs(600),
+                                            child.wait_with_output(),
+                                        ).await {
+                                            Ok(Ok(output)) => {
+                                                let stdout = String::from_utf8_lossy(&output.stdout);
+                                                let summary = if stdout.len() > 500 {
+                                                    format!("{}...", &stdout[..500])
+                                                } else {
+                                                    stdout.trim().to_string()
+                                                };
+                                                let status = if output.status.success() { "completed" } else { "failed" };
+                                                let msg = if summary.is_empty() {
+                                                    format!("Session '{}' {}.", name_clone, status)
+                                                } else {
+                                                    format!("Session '{}' {}.\n\n{}", name_clone, status, summary)
+                                                };
+                                                let _ = client_clone.chunk_and_send(chat_id, &msg).await;
+                                            }
+                                            Ok(Err(e)) => {
+                                                let _ = client_clone.send_message(chat_id, &format!("Session '{}' error: {}", name_clone, e)).await;
+                                            }
+                                            Err(_) => {
+                                                let _ = client_clone.send_message(chat_id, &format!("Session '{}' timed out (10 min).", name_clone)).await;
+                                            }
                                         }
-                                    }
-                                    Ok(o) => {
-                                        let err = String::from_utf8_lossy(&o.stderr);
-                                        let _ = client_clone.send_message(chat_id, &format!("Claude error: {}", err.chars().take(500).collect::<String>())).await;
                                     }
                                     Err(e) => {
                                         let _ = client_clone.send_message(chat_id, &format!("Failed to start Claude: {}", e)).await;
