@@ -11,6 +11,7 @@ use crate::types::Trigger;
 
 #[derive(Debug, PartialEq)]
 pub enum Command {
+    Start,  // Auto-pair this chat
     Status,
     Pair(String),
     Stop,
@@ -21,6 +22,7 @@ pub enum Command {
 
 pub fn parse_command(text: &str) -> Option<Command> {
     let text = text.trim();
+    if text == "/start" { return Some(Command::Start); }
     if text == "/status" { return Some(Command::Status); }
     if text == "/stop" { return Some(Command::Stop); }
     if text.starts_with("/pair ") {
@@ -103,6 +105,22 @@ pub async fn run_poller(
                 let is_paired = config.telegram.paired_chat_ids.contains(&chat_id_str);
 
                 match parse_command(&text) {
+                    Some(Command::Start) => {
+                        // Auto-pair on /start — standard Telegram bot UX
+                        if is_paired {
+                            let _ = client.send_message(chat_id, "Already paired! Just send me a message and I'll respond.\n\nCommands: /status /stop /perms <level> /server on|off").await;
+                        } else {
+                            match add_paired_chat(&dirs, &chat_id_str) {
+                                Ok(()) => {
+                                    let _ = client.send_message(chat_id, "Paired! I'm Homard, your personal assistant. Send me anything and I'll help.\n\nCommands: /status /stop /perms <level> /server on|off").await;
+                                    info!("Telegram: chat {} auto-paired via /start", chat_id);
+                                }
+                                Err(e) => {
+                                    let _ = client.send_message(chat_id, &format!("Pairing failed: {}", e)).await;
+                                }
+                            }
+                        }
+                    }
                     Some(Command::Pair(code)) => {
                         if code.is_empty() {
                             let _ = client.send_message(chat_id, "Usage: /pair <code> \u{2014} get your pairing code from the Homard app.").await;
@@ -162,10 +180,10 @@ pub async fn run_poller(
                         let _ = client.send_message(chat_id, "Use `homard install` from the CLI or the tray app to enable server mode.").await;
                     }
                     Some(_) if !is_paired => {
-                        let _ = client.send_message(chat_id, "Send /pair <code> to connect. Get the code from Homard settings.").await;
+                        let _ = client.send_message(chat_id, "Send /start to connect with Homard.").await;
                     }
                     None if !is_paired => {
-                        let _ = client.send_message(chat_id, "Send /pair <code> to connect.").await;
+                        let _ = client.send_message(chat_id, "Send /start to connect.").await;
                     }
                     None if is_paired => {
                         // Route through agent loop (spawned concurrently to avoid blocking the poller)

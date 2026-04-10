@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiFetch, getStatus, setPermissions, generatePairingCode, getTelegramStatus, readFile, writeFile, type DaemonStatus } from "../lib/api";
+import { apiFetch, getStatus, setPermissions, getTelegramStatus, readFile, writeFile, type DaemonStatus } from "../lib/api";
 
 type SettingsTab = "providers" | "permissions" | "telegram" | "identity" | "daemon";
 
@@ -163,16 +163,38 @@ function PermissionsPanel() {
 }
 
 function TelegramPanel() {
-  const [pairingCode, setPairingCode] = useState("");
+  const [botToken, setBotToken] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
   const [tgStatus, setTgStatus] = useState<{ enabled: boolean; paired_chats: number } | null>(null);
 
   useEffect(() => {
     getTelegramStatus().then(setTgStatus).catch(() => {});
   }, []);
 
-  const handleGenerate = async () => {
-    const code = await generatePairingCode();
-    setPairingCode(code);
+  const handleSaveToken = async () => {
+    if (!botToken.trim()) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      const res = await apiFetch("/telegram/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: botToken.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMessage(data.message || "Connected!");
+        setBotToken("");
+        getTelegramStatus().then(setTgStatus);
+      } else {
+        setMessage(data || "Failed to connect");
+      }
+    } catch {
+      setMessage("Failed to connect");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -184,47 +206,51 @@ function TelegramPanel() {
         </span>
       </div>
 
-      {/* Setup instructions */}
-      <div className="px-3 py-2 text-[11px] leading-relaxed" style={{ color: "var(--navy-muted)", borderBottom: "0.5px solid var(--border)" }}>
-        <div className="font-medium mb-1" style={{ color: "var(--navy)" }}>Setup</div>
-        <ol className="list-decimal pl-3.5 space-y-0.5">
-          <li>Open <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" style={{ color: "var(--coral)" }}>@BotFather</a> in Telegram</li>
-          <li>Send <code className="font-mono" style={{ color: "var(--coral)" }}>/newbot</code> and follow the prompts</li>
-          <li>Copy the bot token and paste it below</li>
-          <li>Generate a pairing code and send it to your bot</li>
-        </ol>
-      </div>
-
-      {/* Bot token input */}
-      <div className="px-3 py-2" style={{ borderBottom: "0.5px solid var(--border)" }}>
-        <div className="text-[11px] font-medium mb-1" style={{ color: "var(--navy)" }}>Bot Token</div>
-        <input
-          type="password"
-          placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-          className="w-full text-[11px] rounded px-2 py-1 outline-none font-mono"
-          style={{ background: "var(--cream)", color: "var(--navy)", border: "0.5px solid var(--border)" }}
-        />
-      </div>
-
-      {/* Pairing */}
-      <div className="px-3 py-2">
-        <button
-          onClick={handleGenerate}
-          className="px-2.5 py-1 rounded text-[11px] font-medium transition-colors"
-          style={{ background: "var(--coral)", color: "white" }}
-        >
-          Generate Pairing Code
-        </button>
-      </div>
-      {pairingCode && (
-        <div className="px-3 py-2" style={{ borderTop: "0.5px solid var(--border)" }}>
-          <div className="text-[11px] mb-1" style={{ color: "var(--navy-muted)" }}>
-            Open your Telegram bot and send:
+      {!tgStatus?.enabled ? (
+        <>
+          {/* Setup instructions */}
+          <div className="px-3 py-2 text-[11px] leading-relaxed" style={{ color: "var(--navy-muted)", borderBottom: "0.5px solid var(--border)" }}>
+            <div className="font-medium mb-1" style={{ color: "var(--navy)" }}>Setup</div>
+            <ol className="list-decimal pl-3.5 space-y-0.5">
+              <li>Open <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" style={{ color: "var(--coral)" }}>@BotFather</a> in Telegram</li>
+              <li>Send <code className="font-mono" style={{ color: "var(--coral)" }}>/newbot</code> and follow the prompts</li>
+              <li>Paste the bot token below and click Connect</li>
+              <li>Open your new bot in Telegram and send <code className="font-mono" style={{ color: "var(--coral)" }}>/start</code></li>
+            </ol>
           </div>
-          <code className="text-[14px] font-mono font-bold block" style={{ color: "var(--coral)" }}>
-            /pair {pairingCode}
-          </code>
-          <div className="text-[10px] mt-1" style={{ color: "var(--navy-muted)" }}>Code expires in 10 minutes</div>
+
+          {/* Bot token input + save */}
+          <div className="px-3 py-2" style={{ borderBottom: "0.5px solid var(--border)" }}>
+            <div className="text-[11px] font-medium mb-1" style={{ color: "var(--navy)" }}>Bot Token</div>
+            <div className="flex gap-1.5">
+              <input
+                type="password"
+                value={botToken}
+                onChange={e => setBotToken(e.target.value)}
+                placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+                className="flex-1 text-[11px] rounded px-2 py-1 outline-none font-mono"
+                style={{ background: "var(--cream)", color: "var(--navy)", border: "0.5px solid var(--border)" }}
+              />
+              <button
+                onClick={handleSaveToken}
+                disabled={saving || !botToken.trim()}
+                className="px-2.5 py-1 rounded text-[11px] font-medium transition-colors shrink-0 disabled:opacity-30"
+                style={{ background: "var(--coral)", color: "white" }}
+              >
+                {saving ? "..." : "Connect"}
+              </button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="px-3 py-2 text-[11px]" style={{ color: "var(--navy-muted)", borderBottom: "0.5px solid var(--border)" }}>
+          Bot is running. Send <code className="font-mono" style={{ color: "var(--coral)" }}>/start</code> in Telegram to pair new chats.
+        </div>
+      )}
+
+      {message && (
+        <div className="px-3 py-1.5 text-[11px]" style={{ background: "var(--sage)", color: "var(--navy)", borderBottom: "0.5px solid var(--border)" }}>
+          {message}
         </div>
       )}
     </div>

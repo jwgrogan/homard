@@ -245,6 +245,41 @@ pub async fn auth_callback(
     }
 }
 
+#[derive(Deserialize)]
+pub struct TelegramTokenRequest {
+    pub token: String,
+}
+
+pub async fn save_telegram_token(
+    State(state): State<AppState>,
+    Json(req): Json<TelegramTokenRequest>,
+) -> std::result::Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let dirs = crate::config::HomardDirs::default_path();
+
+    // Verify the token first
+    let client = crate::telegram::TelegramClient::new(&req.token);
+    let bot_name = client.verify().await
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid token: {}", e)))?;
+
+    // Save to Keychain + config
+    #[cfg(target_os = "macos")]
+    crate::config::save_telegram_token(&dirs, &req.token)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Update in-memory config
+    {
+        let mut config = state.config.write().await;
+        config.telegram.enabled = true;
+        let _ = config.save(&dirs.config_path());
+    }
+
+    Ok(Json(serde_json::json!({
+        "status": "connected",
+        "bot_name": bot_name,
+        "message": format!("Bot @{} connected! Send /start to it in Telegram to pair.", bot_name)
+    })))
+}
+
 pub async fn telegram_pair(State(_state): State<AppState>) -> std::result::Result<Json<serde_json::Value>, (StatusCode, String)> {
     let dirs = crate::config::HomardDirs::default_path();
     let code = crate::config::generate_pairing_code(&dirs)

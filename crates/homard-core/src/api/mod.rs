@@ -66,6 +66,7 @@ pub fn create_router(state: AppState, api_token: String) -> Router {
         .route("/settings/permissions", get(routes::get_permissions).put(routes::set_permissions))
         .route("/auth/{provider}/start", post(routes::start_auth))
         .route("/auth/{provider}/callback", get(routes::auth_callback))
+        .route("/telegram/token", post(routes::save_telegram_token))
         .route("/telegram/pair", post(routes::telegram_pair))
         .route("/telegram/status", get(routes::telegram_status))
         .route("/server", get(routes::get_server_mode).put(routes::set_server_mode))
