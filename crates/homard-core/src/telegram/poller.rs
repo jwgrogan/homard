@@ -46,25 +46,34 @@ pub async fn run_poller(
     cancel: CancellationToken,
     stop_tx: tokio::sync::watch::Sender<bool>,
 ) {
-    // Get token from keychain
-    #[cfg(target_os = "macos")]
-    let token = match crate::config::get_telegram_token(&dirs) {
-        Ok(Some(t)) => t,
-        Ok(None) => {
-            warn!("Telegram poller: no token configured");
-            return;
-        }
-        Err(e) => {
-            error!("Telegram poller: failed to read token: {}", e);
-            return;
-        }
-    };
-
+    // Wait for a token to be configured (checks every 10s)
     #[cfg(not(target_os = "macos"))]
     {
         warn!("Telegram poller: only supported on macOS (keychain)");
         return;
     }
+
+    #[cfg(target_os = "macos")]
+    let token = loop {
+        if cancel.is_cancelled() { return; }
+        match crate::config::get_telegram_token(&dirs) {
+            Ok(Some(t)) => {
+                info!("Telegram poller: token found, starting...");
+                break t;
+            }
+            Ok(None) => {
+                // No token yet — wait and check again
+                tokio::select! {
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {}
+                    _ = cancel.cancelled() => { return; }
+                }
+            }
+            Err(e) => {
+                warn!("Telegram poller: keychain error: {}, retrying...", e);
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            }
+        }
+    };
 
     #[cfg(target_os = "macos")]
     {
