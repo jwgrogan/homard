@@ -42,8 +42,6 @@ function ProviderCard({ name, status, connected, currentModel, onRefresh }: {
           model: model || providerModels[name]?.[0] || "",
           api_key_keychain_ref: `homard.${name}.api_key`,
         };
-        // Store API key via the daemon (it writes to Keychain)
-        // For now, store in config directly (not ideal but functional)
       }
 
       await apiFetch("/settings", {
@@ -61,27 +59,27 @@ function ProviderCard({ name, status, connected, currentModel, onRefresh }: {
 
   return (
     <div
-      className="px-3 py-3 rounded-xl"
-      style={{ background: "var(--cream-card)", border: `1px solid ${isActive ? "var(--coral)" : "var(--border)"}` }}
+      className="px-3 py-2"
+      style={{ borderBottom: `0.5px solid ${isActive ? "var(--coral)" : "var(--border)"}` }}
     >
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-sm font-medium" style={{ color: "var(--navy)" }}>
+          <div className="text-[13px] font-medium" style={{ color: "var(--navy)" }}>
             {name === "codex_cli" ? "Codex CLI" : name === "claude_cli" ? "Claude CLI" : name.charAt(0).toUpperCase() + name.slice(1)}
           </div>
-          <div className="text-xs mt-0.5" style={{ color: "var(--navy-muted)" }}>
-            {name === "codex_cli" ? "Uses your Codex login (subscription)" :
+          <div className="text-[11px]" style={{ color: "var(--navy-muted)" }}>
+            {name === "codex_cli" ? "Uses your Codex login" :
              name === "claude_cli" ? "Uses your Claude login" :
              name === "anthropic" ? "Extra usage billing" :
              name === "openai" ? "API key billing" : "Per-token billing"}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 items-center">
           <select
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            className="text-xs rounded-lg px-2 py-1 outline-none"
-            style={{ background: "var(--sage)", color: "var(--navy)", border: "1px solid var(--border)" }}
+            className="text-[11px] rounded px-1.5 py-0.5 outline-none"
+            style={{ background: "var(--sage)", color: "var(--navy)", border: "0.5px solid var(--border)" }}
           >
             {(providerModels[name] || []).map((m) => (
               <option key={m} value={m}>{m}</option>
@@ -90,7 +88,7 @@ function ProviderCard({ name, status, connected, currentModel, onRefresh }: {
           <button
             onClick={handleConnect}
             disabled={connecting || connected}
-            className="px-3 py-1 rounded-lg text-xs font-medium transition-colors"
+            className="px-2 py-0.5 rounded text-[11px] font-medium transition-colors"
             style={{
               background: connected ? "var(--success-bg)" : "var(--sage)",
               color: connected ? "var(--success)" : "var(--navy)",
@@ -101,14 +99,14 @@ function ProviderCard({ name, status, connected, currentModel, onRefresh }: {
         </div>
       </div>
       {isApiKey && !connected && (
-        <div className="mt-2">
+        <div className="mt-1.5">
           <input
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder={`${name === "openrouter" ? "sk-or-..." : "sk-..."} API key`}
-            className="w-full text-xs rounded-lg px-2 py-1.5 outline-none"
-            style={{ background: "var(--cream)", color: "var(--navy)", border: "1px solid var(--border)" }}
+            className="w-full text-[11px] rounded px-2 py-1 outline-none"
+            style={{ background: "var(--cream)", color: "var(--navy)", border: "0.5px solid var(--border)" }}
           />
         </div>
       )}
@@ -139,19 +137,25 @@ function PermissionsPanel() {
   };
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col">
       {levels.map((l) => (
         <button
           key={l.id}
           onClick={() => handleChange(l.id)}
-          className="px-3 py-3 rounded-xl text-left transition-colors"
+          className="px-3 py-2 text-left transition-colors"
           style={{
-            background: level === l.id ? "var(--sage)" : "var(--cream-card)",
-            border: `1px solid ${level === l.id ? "var(--coral)" : "var(--border)"}`,
+            background: level === l.id ? "rgba(232, 240, 236, 0.5)" : "transparent",
+            borderBottom: "0.5px solid var(--border)",
           }}
         >
-          <div className="text-sm font-medium" style={{ color: "var(--navy)" }}>{l.label}</div>
-          <div className="text-xs mt-0.5" style={{ color: "var(--navy-muted)" }}>{l.desc}</div>
+          <div className="flex items-center gap-2">
+            <span
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ background: level === l.id ? "var(--coral)" : "var(--border)" }}
+            />
+            <span className="text-[13px] font-medium" style={{ color: "var(--navy)" }}>{l.label}</span>
+            <span className="text-[11px]" style={{ color: "var(--navy-muted)" }}>{l.desc}</span>
+          </div>
         </button>
       ))}
     </div>
@@ -172,32 +176,28 @@ function TelegramPanel() {
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      <div
-        className="px-3 py-3 rounded-xl"
-        style={{ background: "var(--cream-card)", border: "1px solid var(--border)" }}
-      >
-        <div className="text-sm font-medium" style={{ color: "var(--navy)" }}>
+    <div className="flex flex-col">
+      <div className="px-3 py-2" style={{ borderBottom: "0.5px solid var(--border)" }}>
+        <span className="text-[13px] font-medium" style={{ color: "var(--navy)" }}>
           Status: {tgStatus?.enabled ? `Connected (${tgStatus.paired_chats} chats)` : "Not connected"}
-        </div>
+        </span>
       </div>
-      <button
-        onClick={handleGenerate}
-        className="px-3 py-2 rounded-xl text-sm font-medium transition-colors"
-        style={{ background: "var(--coral)", color: "white" }}
-      >
-        Generate Pairing Code
-      </button>
-      {pairingCode && (
-        <div
-          className="px-3 py-3 rounded-xl text-center"
-          style={{ background: "var(--cream-card)", border: "1px solid var(--border)" }}
+      <div className="px-3 py-2">
+        <button
+          onClick={handleGenerate}
+          className="px-2.5 py-1 rounded text-[11px] font-medium transition-colors"
+          style={{ background: "var(--coral)", color: "white" }}
         >
-          <div className="text-xs" style={{ color: "var(--navy-muted)" }}>Send this in Telegram:</div>
-          <div className="text-lg font-mono font-bold mt-1" style={{ color: "var(--coral)" }}>
+          Generate Pairing Code
+        </button>
+      </div>
+      {pairingCode && (
+        <div className="px-3 py-2 text-center" style={{ borderTop: "0.5px solid var(--border)" }}>
+          <div className="text-[11px]" style={{ color: "var(--navy-muted)" }}>Send this in Telegram:</div>
+          <div className="text-[15px] font-mono font-bold mt-0.5" style={{ color: "var(--coral)" }}>
             /pair {pairingCode}
           </div>
-          <div className="text-xs mt-1" style={{ color: "var(--navy-muted)" }}>Expires in 10 minutes</div>
+          <div className="text-[10px] mt-0.5" style={{ color: "var(--navy-muted)" }}>Expires in 10 minutes</div>
         </div>
       )}
     </div>
@@ -242,57 +242,36 @@ function DaemonPanel() {
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      <div
-        className="px-3 py-3 rounded-xl"
-        style={{ background: "var(--cream-card)", border: "1px solid var(--border)" }}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium" style={{ color: "var(--navy)" }}>
-              Server Mode
-            </div>
-            <div className="text-xs mt-0.5" style={{ color: "var(--navy-muted)" }}>
-              {serverMode === "on"
-                ? "Homard restarts on crash, starts on boot"
-                : "Daemon stops when you close it"}
-            </div>
+    <div className="flex flex-col">
+      <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: "0.5px solid var(--border)" }}>
+        <div>
+          <div className="text-[13px] font-medium" style={{ color: "var(--navy)" }}>Server Mode</div>
+          <div className="text-[11px]" style={{ color: "var(--navy-muted)" }}>
+            {serverMode === "on" ? "Restarts on crash, starts on boot" : "Stops when you close it"}
           </div>
-          <button
-            onClick={toggleServer}
-            disabled={loading}
-            className="relative w-12 h-6 rounded-full transition-colors"
-            style={{
-              background: serverMode === "on" ? "var(--coral)" : "var(--border)",
-            }}
-          >
-            <span
-              className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform"
-              style={{
-                left: serverMode === "on" ? "calc(100% - 22px)" : "2px",
-              }}
-            />
-          </button>
         </div>
+        <button
+          onClick={toggleServer}
+          disabled={loading}
+          className="relative w-9 h-5 rounded-full transition-colors"
+          style={{ background: serverMode === "on" ? "var(--coral)" : "var(--border)" }}
+        >
+          <span
+            className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform"
+            style={{ left: serverMode === "on" ? "calc(100% - 18px)" : "2px" }}
+          />
+        </button>
       </div>
 
       {message && (
-        <div
-          className="px-3 py-2 rounded-xl text-xs"
-          style={{ background: "var(--sage)", color: "var(--navy)" }}
-        >
+        <div className="px-3 py-1.5 text-[11px]" style={{ background: "var(--sage)", color: "var(--navy)", borderBottom: "0.5px solid var(--border)" }}>
           {message}
         </div>
       )}
 
-      <div
-        className="px-3 py-3 rounded-xl"
-        style={{ background: "var(--cream-card)", border: "1px solid var(--border)" }}
-      >
-        <div className="text-sm font-medium" style={{ color: "var(--navy)" }}>Status</div>
-        <div className="text-xs mt-1 space-y-1" style={{ color: "var(--navy-muted)" }}>
-          <div>launchd plist: {launchdInstalled ? "installed" : "not installed"}</div>
-          <div>Daemon: running (you're seeing this page)</div>
+      <div className="px-3 py-2" style={{ borderBottom: "0.5px solid var(--border)" }}>
+        <div className="text-[11px]" style={{ color: "var(--navy-muted)" }}>
+          launchd: {launchdInstalled ? "installed" : "not installed"} | Daemon: running
         </div>
       </div>
     </div>
@@ -316,16 +295,16 @@ function IdentityPanel() {
   };
 
   return (
-    <div className="flex flex-col gap-2 h-full">
-      <div className="flex gap-1 flex-wrap">
+    <div className="flex flex-col h-full">
+      <div className="flex gap-0.5 px-3 py-1.5" style={{ borderBottom: "0.5px solid var(--border)" }}>
         {files.map((f) => (
           <button
             key={f}
             onClick={() => setSelected(f)}
-            className="px-2 py-1 rounded-lg text-xs transition-colors"
+            className="px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors"
             style={{
-              background: selected === f ? "var(--coral)" : "var(--sage)",
-              color: selected === f ? "white" : "var(--navy)",
+              background: selected === f ? "var(--coral)" : "transparent",
+              color: selected === f ? "white" : "var(--navy-muted)",
             }}
           >
             {f}
@@ -335,22 +314,22 @@ function IdentityPanel() {
       <textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        className="flex-1 rounded-xl px-3 py-2 text-xs font-mono resize-none outline-none"
+        className="flex-1 px-3 py-2 text-[12px] font-mono resize-none outline-none"
         style={{
-          background: "var(--cream-card)",
-          border: "1px solid var(--border)",
+          background: "transparent",
           color: "var(--navy)",
-          minHeight: "150px",
         }}
       />
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="px-3 py-2 rounded-xl text-sm font-medium transition-colors"
-        style={{ background: "var(--coral)", color: "white" }}
-      >
-        {saving ? "Saving..." : "Save"}
-      </button>
+      <div className="px-3 py-1.5" style={{ borderTop: "0.5px solid var(--border)" }}>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="px-2.5 py-1 rounded text-[11px] font-medium transition-colors"
+          style={{ background: "var(--coral)", color: "white" }}
+        >
+          {saving ? "Saving..." : "Save"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -363,7 +342,6 @@ export default function Settings() {
   const refreshStatus = async () => {
     const s = await getStatus();
     setStatus(s);
-    // Also fetch config to see which providers are connected
     try {
       const res = await apiFetch("/settings");
       const cfg = await res.json();
@@ -393,13 +371,16 @@ export default function Settings() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Setting tabs */}
-      <div className="flex gap-1 px-4 pt-3">
+      {/* Settings sub-tabs */}
+      <div
+        className="flex gap-0.5 px-3 py-1.5 p-0.5"
+        style={{ borderBottom: "0.5px solid var(--border)" }}
+      >
         {tabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className="px-2.5 py-1 rounded-lg text-xs font-medium transition-colors"
+            className="px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors"
             style={{
               background: tab === t.id ? "var(--navy)" : "transparent",
               color: tab === t.id ? "var(--cream)" : "var(--navy-muted)",
@@ -410,44 +391,25 @@ export default function Settings() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="flex-1 overflow-y-auto">
         {tab === "providers" && (
-          <div className="flex flex-col gap-2">
-            <div className="text-xs font-medium mb-1" style={{ color: "var(--navy-muted)" }}>
-              Use your existing CLI login (recommended)
+          <div className="flex flex-col">
+            <div className="px-3 py-1.5 text-[11px] font-medium" style={{ color: "var(--navy-muted)", borderBottom: "0.5px solid var(--border)" }}>
+              CLI Login (recommended)
             </div>
             <ProviderCard name="codex_cli" status={status} connected={"codex_cli" in connectedProviders} currentModel={connectedProviders["codex_cli"]?.model} onRefresh={refreshStatus} />
             <ProviderCard name="claude_cli" status={status} connected={"claude_cli" in connectedProviders} currentModel={connectedProviders["claude_cli"]?.model} onRefresh={refreshStatus} />
 
-            <div className="text-xs font-medium mb-1 mt-3" style={{ color: "var(--navy-muted)" }}>
-              API Key (for direct API access)
+            <div className="px-3 py-1.5 text-[11px] font-medium" style={{ color: "var(--navy-muted)", borderBottom: "0.5px solid var(--border)" }}>
+              API Key
             </div>
             <ProviderCard name="openrouter" status={status} connected={"openrouter" in connectedProviders} currentModel={connectedProviders["openrouter"]?.model} onRefresh={refreshStatus} />
-
-            <div
-              className="px-3 py-2 rounded-xl text-xs"
-              style={{ background: "var(--cream-card)", border: "1px solid var(--border)", color: "var(--navy-muted)" }}
-            >
-              CLI backends use your existing <code style={{ color: "var(--coral)" }}>codex</code> or <code style={{ color: "var(--coral)" }}>claude</code> login and bill to your subscription. Run <code>codex login</code> or <code>claude login</code> in your terminal first.
-            </div>
           </div>
         )}
         {tab === "permissions" && <PermissionsPanel />}
         {tab === "telegram" && <TelegramPanel />}
         {tab === "identity" && <IdentityPanel />}
         {tab === "daemon" && <DaemonPanel />}
-      </div>
-
-      {/* Daemon status footer */}
-      <div
-        className="px-4 py-2 text-xs border-t flex items-center gap-2"
-        style={{ borderColor: "var(--border)", color: "var(--navy-muted)" }}
-      >
-        <span
-          className="w-2 h-2 rounded-full"
-          style={{ background: status?.running ? "var(--success)" : "var(--error)" }}
-        />
-        {status?.running ? `Daemon running \u00B7 ${status.active_provider}` : "Daemon offline"}
       </div>
     </div>
   );

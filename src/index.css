@@ -7,7 +7,7 @@
   --coral: #E85D4A;
   --navy: #1B2D4F;
   --navy-muted: #4A6180;
-  --border: #C2D1C8;
+  --border: rgba(194, 209, 200, 0.6);
   --success: #3D7A5F;
   --success-bg: #E8F0EC;
   --error: #C44D3B;
@@ -21,68 +21,66 @@ html, body {
   background: transparent;
   color: var(--navy);
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  font-size: 13px;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
 
 #root {
   background: var(--cream);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
   height: 100vh;
-  box-shadow: 0 8px 32px rgba(27, 45, 79, 0.12), 0 2px 8px rgba(27, 45, 79, 0.08);
-  border: 1px solid var(--border);
+  box-shadow: 0 12px 40px rgba(27, 45, 79, 0.15), 0 0 0 0.5px rgba(27, 45, 79, 0.1);
 }
 
 /* Interactive states */
 button:not(:disabled):hover {
-  filter: brightness(0.95);
+  filter: brightness(0.97);
 }
 button:not(:disabled):active {
-  filter: brightness(0.9);
   transform: scale(0.98);
 }
 button:focus-visible {
   outline: 2px solid var(--coral);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
 /* Scrollbar styling */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.25); }
 
 /* Markdown prose styles */
-.prose { line-height: 1.5; }
+.prose { line-height: 1.5; font-size: 13px; }
 .prose h1, .prose h2, .prose h3 { font-weight: 600; margin: 0.5em 0 0.25em; }
-.prose h1 { font-size: 1.1em; }
-.prose h2 { font-size: 1em; }
-.prose h3 { font-size: 0.95em; }
+.prose h1 { font-size: 15px; }
+.prose h2 { font-size: 14px; }
+.prose h3 { font-size: 13px; }
 .prose p { margin: 0.25em 0; }
 .prose ul, .prose ol { margin: 0.25em 0; padding-left: 1.25em; }
 .prose li { margin: 0.1em 0; }
 .prose code {
   background: var(--navy);
   color: var(--cream-card);
-  padding: 0.1em 0.3em;
-  border-radius: 3px;
-  font-size: 0.85em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 12px;
 }
 .prose pre {
   background: var(--navy);
   color: var(--cream-card);
   padding: 0.75em;
-  border-radius: 8px;
+  border-radius: 6px;
   overflow-x: auto;
   margin: 0.5em 0;
+  font-size: 12px;
 }
-.prose pre code {
-  background: none;
-  padding: 0;
-}
+.prose pre code { background: none; padding: 0; }
 .prose a { color: var(--coral); text-decoration: underline; }
 .prose blockquote {
-  border-left: 3px solid var(--border);
+  border-left: 2px solid var(--border);
   padding-left: 0.75em;
   margin: 0.5em 0;
   color: var(--navy-muted);
