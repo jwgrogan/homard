@@ -283,8 +283,14 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
 
+            // Pre-warm codex app-server if codex_cli is the active provider
+            if config.active_provider == "codex_cli" {
+                eprintln!("[homard] pre-warming codex app-server...");
+                llm.warmup_codex().await;
+            }
+
             // Start API server
-            eprintln!("[homard] all initialized, starting API server on :17700...");
+            eprintln!("[homard] starting API server on :17700...");
             homard_core::api::serve(api_state, 17700).await
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
         }

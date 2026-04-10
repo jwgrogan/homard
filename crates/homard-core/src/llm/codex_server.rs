@@ -161,6 +161,13 @@ impl CodexServer {
         })
     }
 
+    /// Pre-warm the server at startup (call from daemon init)
+    pub async fn warmup(&self) {
+        if let Err(e) = self.ensure_running().await {
+            tracing::warn!("Codex app-server warmup failed (will retry on first chat): {}", e);
+        }
+    }
+
     /// Shutdown the codex process
     pub async fn shutdown(&self) {
         let mut proc = self.process.lock().await;

@@ -104,6 +104,11 @@ impl LlmClient {
         }
     }
 
+    /// Pre-warm the codex app-server at startup
+    pub async fn warmup_codex(&self) {
+        self.codex_server.warmup().await;
+    }
+
     pub async fn set_active_provider(&self, provider: String) {
         let mut config = self.shared_config.write().await;
         config.active_provider = provider;

@@ -177,11 +177,36 @@ function TelegramPanel() {
 
   return (
     <div className="flex flex-col">
+      {/* Status */}
       <div className="px-3 py-2" style={{ borderBottom: "0.5px solid var(--border)" }}>
-        <span className="text-[13px] font-medium" style={{ color: "var(--navy)" }}>
-          Status: {tgStatus?.enabled ? `Connected (${tgStatus.paired_chats} chats)` : "Not connected"}
+        <span className="text-[13px] font-medium" style={{ color: tgStatus?.enabled ? "var(--success)" : "var(--navy)" }}>
+          {tgStatus?.enabled ? `Connected (${tgStatus.paired_chats} paired chats)` : "Not connected"}
         </span>
       </div>
+
+      {/* Setup instructions */}
+      <div className="px-3 py-2 text-[11px] leading-relaxed" style={{ color: "var(--navy-muted)", borderBottom: "0.5px solid var(--border)" }}>
+        <div className="font-medium mb-1" style={{ color: "var(--navy)" }}>Setup</div>
+        <ol className="list-decimal pl-3.5 space-y-0.5">
+          <li>Open <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" style={{ color: "var(--coral)" }}>@BotFather</a> in Telegram</li>
+          <li>Send <code className="font-mono" style={{ color: "var(--coral)" }}>/newbot</code> and follow the prompts</li>
+          <li>Copy the bot token and paste it below</li>
+          <li>Generate a pairing code and send it to your bot</li>
+        </ol>
+      </div>
+
+      {/* Bot token input */}
+      <div className="px-3 py-2" style={{ borderBottom: "0.5px solid var(--border)" }}>
+        <div className="text-[11px] font-medium mb-1" style={{ color: "var(--navy)" }}>Bot Token</div>
+        <input
+          type="password"
+          placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+          className="w-full text-[11px] rounded px-2 py-1 outline-none font-mono"
+          style={{ background: "var(--cream)", color: "var(--navy)", border: "0.5px solid var(--border)" }}
+        />
+      </div>
+
+      {/* Pairing */}
       <div className="px-3 py-2">
         <button
           onClick={handleGenerate}
@@ -192,12 +217,14 @@ function TelegramPanel() {
         </button>
       </div>
       {pairingCode && (
-        <div className="px-3 py-2 text-center" style={{ borderTop: "0.5px solid var(--border)" }}>
-          <div className="text-[11px]" style={{ color: "var(--navy-muted)" }}>Send this in Telegram:</div>
-          <div className="text-[15px] font-mono font-bold mt-0.5" style={{ color: "var(--coral)" }}>
-            /pair {pairingCode}
+        <div className="px-3 py-2" style={{ borderTop: "0.5px solid var(--border)" }}>
+          <div className="text-[11px] mb-1" style={{ color: "var(--navy-muted)" }}>
+            Open your Telegram bot and send:
           </div>
-          <div className="text-[10px] mt-0.5" style={{ color: "var(--navy-muted)" }}>Expires in 10 minutes</div>
+          <code className="text-[14px] font-mono font-bold block" style={{ color: "var(--coral)" }}>
+            /pair {pairingCode}
+          </code>
+          <div className="text-[10px] mt-1" style={{ color: "var(--navy-muted)" }}>Code expires in 10 minutes</div>
         </div>
       )}
     </div>
