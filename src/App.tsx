@@ -47,8 +47,8 @@ export default function App() {
         const nameMatch = text.match(/[Nn]ame:\s*(.+)/);
         const name = nameMatch ? nameMatch[1].trim().split(" ")[0] : null;
         document.title = name && name.length > 1
-          ? `${name}'s personal crustacean 🦞`
-          : "your personal crustacean 🦞";
+          ? `Homard — ${name}'s personal crustacean 🦞`
+          : "Homard — your personal crustacean 🦞";
       } catch { /* keep default */ }
     })();
   }, []);
