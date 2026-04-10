@@ -45,10 +45,9 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen">
-      {/* Native title bar handles drag — just add our segmented control below it */}
-      {/* Top padding for macOS traffic lights (overlay title bar) */}
+      {/* Segmented control below native title bar */}
       <div
-        className="pt-7 px-3 pb-1.5 flex items-center justify-center border-b shrink-0"
+        className="px-3 py-1.5 flex items-center justify-center border-b shrink-0"
         style={{ borderColor: "var(--border)" }}
       >
         {/* Segmented control */}
