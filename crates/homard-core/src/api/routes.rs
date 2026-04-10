@@ -261,16 +261,16 @@ pub async fn save_telegram_token(
     let bot_name = client.verify().await
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid token: {}", e)))?;
 
-    // Save to Keychain + config
+    // Save to Keychain + config (this updates config.json with token_keychain_ref)
     #[cfg(target_os = "macos")]
     crate::config::save_telegram_token(&dirs, &req.token)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    // Update in-memory config
+    // Reload from disk to pick up the token_keychain_ref that save_telegram_token wrote
     {
+        let fresh = crate::config::HomardConfig::load_or_default(&dirs.config_path());
         let mut config = state.config.write().await;
-        config.telegram.enabled = true;
-        let _ = config.save(&dirs.config_path());
+        *config = fresh;
     }
 
     Ok(Json(serde_json::json!({
@@ -289,9 +289,25 @@ pub async fn telegram_pair(State(_state): State<AppState>) -> std::result::Resul
 
 pub async fn telegram_status(State(state): State<AppState>) -> Json<serde_json::Value> {
     let config = state.config.read().await;
+
+    // Try to get bot name if token is configured
+    let mut bot_name: Option<String> = None;
+    #[cfg(target_os = "macos")]
+    if config.telegram.token_keychain_ref.is_some() {
+        let dirs = crate::config::HomardDirs::default_path();
+        if let Ok(Some(token)) = crate::config::get_telegram_token(&dirs) {
+            let client = crate::telegram::TelegramClient::new(&token);
+            if let Ok(name) = client.verify().await {
+                bot_name = Some(name);
+            }
+        }
+    }
+
     Json(serde_json::json!({
         "enabled": config.telegram.enabled,
         "paired_chats": config.telegram.paired_chat_ids.len(),
+        "allowed_usernames": config.telegram.allowed_usernames,
+        "bot_name": bot_name,
     }))
 }
 

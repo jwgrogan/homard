@@ -250,7 +250,7 @@ function TelegramPanel() {
   const [botToken, setBotToken] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
-  const [tgStatus, setTgStatus] = useState<{ enabled: boolean; paired_chats: number } | null>(null);
+  const [tgStatus, setTgStatus] = useState<{ enabled: boolean; paired_chats: number; bot_name?: string } | null>(null);
 
   useEffect(() => {
     getTelegramStatus().then(setTgStatus).catch(() => {});
@@ -285,9 +285,18 @@ function TelegramPanel() {
     <div className="flex flex-col">
       {/* Status */}
       <div className="px-3 py-2" style={{ borderBottom: "0.5px solid var(--border)" }}>
-        <span className="text-[13px] font-medium" style={{ color: tgStatus?.enabled ? "var(--success)" : "var(--navy)" }}>
-          {tgStatus?.enabled ? `Connected (${tgStatus.paired_chats} paired chats)` : "Not connected"}
-        </span>
+        <div className="text-[13px] font-medium" style={{ color: tgStatus?.enabled ? "var(--success)" : "var(--navy)" }}>
+          {tgStatus?.enabled
+            ? tgStatus.bot_name
+              ? `@${tgStatus.bot_name} connected`
+              : "Bot connected"
+            : "Not connected"}
+        </div>
+        {tgStatus?.enabled && (
+          <div className="text-[10px] mt-0.5" style={{ color: "var(--navy-muted)" }}>
+            {tgStatus.paired_chats} paired chats
+          </div>
+        )}
       </div>
 
       {!tgStatus?.enabled ? (
