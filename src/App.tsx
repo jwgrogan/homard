@@ -46,9 +46,9 @@ export default function App() {
         // Look for "Name: X" or first line after # that has a name
         const nameMatch = text.match(/[Nn]ame:\s*(.+)/);
         const name = nameMatch ? nameMatch[1].trim().split(" ")[0] : null;
-        if (name && name.length > 1) {
-          document.title = `${name}'s personal crustacean 🦞`;
-        }
+        document.title = name && name.length > 1
+          ? `${name}'s personal crustacean 🦞`
+          : "your personal crustacean 🦞";
       } catch { /* keep default */ }
     })();
   }, []);
