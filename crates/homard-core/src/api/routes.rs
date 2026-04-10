@@ -164,7 +164,14 @@ pub async fn set_permissions(
     State(state): State<AppState>,
     Json(req): Json<PermissionRequest>,
 ) -> StatusCode {
-    state.security.set_permission_level(req.level).await;
+    state.security.set_permission_level(req.level.clone()).await;
+    // Persist to config.json
+    let dirs = crate::config::HomardDirs::default_path();
+    {
+        let mut config = state.config.write().await;
+        config.permission_level = req.level;
+        let _ = config.save(&dirs.config_path());
+    }
     StatusCode::OK
 }
 

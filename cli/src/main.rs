@@ -205,9 +205,13 @@ async fn main() -> anyhow::Result<()> {
                             let poller_stop = stop_tx.clone();
                             let cancel_clone = poller_cancel.clone();
 
+                            let poller_security = security.clone();
+                            let poller_config = shared_config.clone();
+
                             tokio::spawn(async move {
                                 homard_core::telegram::poller::run_poller(
                                     poller_dirs, poller_agent, poller_client, cancel_clone, poller_stop,
+                                    poller_security, poller_config,
                                 ).await;
                             });
 

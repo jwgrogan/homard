@@ -11,11 +11,12 @@ use crate::types::Trigger;
 
 #[derive(Debug, PartialEq)]
 pub enum Command {
-    Start,  // Auto-pair this chat
+    Start,
     Status,
     Pair(String),
     Stop,
     Perms(String),
+    Claude(String),  // /claude <prompt> — spawn a Claude session
     ServerOff,
     ServerOn,
 }
@@ -34,6 +35,9 @@ pub fn parse_command(text: &str) -> Option<Command> {
     if text.starts_with("/perms ") {
         return Some(Command::Perms(text[7..].trim().to_string()));
     }
+    if text.starts_with("/claude ") {
+        return Some(Command::Claude(text[8..].trim().to_string()));
+    }
     if text == "/server off" { return Some(Command::ServerOff); }
     if text == "/server on" { return Some(Command::ServerOn); }
     None
@@ -45,6 +49,8 @@ pub async fn run_poller(
     client: Arc<TelegramClient>,
     cancel: CancellationToken,
     stop_tx: tokio::sync::watch::Sender<bool>,
+    security: Arc<crate::security::SecurityManager>,
+    shared_config: Arc<tokio::sync::RwLock<crate::config::HomardConfig>>,
 ) {
     // Wait for a token to be configured (checks every 10s)
     #[cfg(not(target_os = "macos"))]
@@ -179,7 +185,59 @@ pub async fn run_poller(
                         });
                     }
                     Some(Command::Perms(level)) if is_allowed => {
-                        let _ = client.send_message(chat_id, &format!("Permission level set to: {} (restart daemon to apply)", level)).await;
+                        let new_level = match level.as_str() {
+                            "autonomous" | "auto" => crate::types::PermissionLevel::Autonomous,
+                            "locked" | "lock" => crate::types::PermissionLevel::Locked,
+                            _ => crate::types::PermissionLevel::Supervised,
+                        };
+                        security.set_permission_level(new_level.clone()).await;
+                        // Persist to config
+                        {
+                            let mut config = shared_config.write().await;
+                            config.permission_level = new_level.clone();
+                            let _ = config.save(&dirs.config_path());
+                        }
+                        let name = match new_level {
+                            crate::types::PermissionLevel::Supervised => "supervised",
+                            crate::types::PermissionLevel::Autonomous => "autonomous",
+                            crate::types::PermissionLevel::Locked => "locked",
+                        };
+                        let _ = client.send_message(chat_id, &format!("Permission level: {}", name)).await;
+                    }
+                    Some(Command::Claude(prompt)) if is_allowed => {
+                        if prompt.is_empty() {
+                            let _ = client.send_message(chat_id, "Usage: /claude <prompt>\nExample: /claude fix the tests in site-factory").await;
+                        } else {
+                            let _ = client.send_message(chat_id, &format!("Starting Claude session: {}...", &prompt[..prompt.len().min(50)])).await;
+                            let client_clone = client.clone();
+                            tokio::spawn(async move {
+                                let output = tokio::process::Command::new("sh")
+                                    .arg("-c")
+                                    .arg(&format!("echo '' | claude -p {} --output-format text", crate::llm::cli_backend::shell_escape_pub(&prompt)))
+                                    .stdout(std::process::Stdio::piped())
+                                    .stderr(std::process::Stdio::piped())
+                                    .output()
+                                    .await;
+                                match output {
+                                    Ok(o) if o.status.success() => {
+                                        let text = String::from_utf8_lossy(&o.stdout);
+                                        let clean = text.trim();
+                                        if clean.is_empty() {
+                                            let _ = client_clone.send_message(chat_id, "Claude session completed (no output).").await;
+                                        } else {
+                                            let _ = client_clone.chunk_and_send(chat_id, clean).await;
+                                        }
+                                    }
+                                    Ok(o) => {
+                                        let err = String::from_utf8_lossy(&o.stderr);
+                                        let _ = client_clone.send_message(chat_id, &format!("Claude error: {}", err.chars().take(500).collect::<String>())).await;
+                                    }
+                                    Err(e) => {
+                                        let _ = client_clone.send_message(chat_id, &format!("Failed to start Claude: {}", e)).await;
+                                    }
+                                }
+                            });
+                        }
                     }
                     Some(Command::ServerOff) if is_allowed => {
                         // Unload launchd plist

@@ -54,6 +54,10 @@ fn strip_ansi(s: &str) -> String {
     result
 }
 
+pub fn shell_escape_pub(s: &str) -> String {
+    shell_escape(s)
+}
+
 fn shell_escape(s: &str) -> String {
     // Wrap in single quotes, escaping any single quotes in the string
     format!("'{}'", s.replace('\'', "'\\''"))
