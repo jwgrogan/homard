@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Chat from "./pages/Chat";
 import Activity from "./pages/Activity";
 import Settings from "./pages/Settings";
@@ -43,18 +43,27 @@ export default function App() {
     { id: "settings" as Tab, label: "Settings", Icon: SettingsIcon },
   ];
 
+  const handleDragStart = useCallback(async (e: React.MouseEvent) => {
+    // Only drag from the toolbar background, not buttons
+    if ((e.target as HTMLElement).closest('button')) return;
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().startDragging();
+    } catch { /* not in Tauri */ }
+  }, []);
+
   return (
     <div className="flex flex-col h-screen">
       {/* Toolbar — vibrancy blur */}
       <div
-        className="px-3 py-2 flex items-center justify-between border-b shrink-0"
+        className="px-3 py-2 flex items-center justify-between border-b shrink-0 cursor-grab active:cursor-grabbing"
+        onMouseDown={handleDragStart}
         style={{
           borderColor: "var(--border)",
           background: "rgba(232, 240, 236, 0.72)",
           backdropFilter: "blur(20px)",
           WebkitBackdropFilter: "blur(20px)",
-          WebkitAppRegion: "drag",
-        } as React.CSSProperties}
+        }}
       >
         {/* Left: title */}
         <span className="text-[11px] font-medium" style={{ color: "var(--navy-muted)" }}>
