@@ -6,6 +6,9 @@ use super::client::LlmResponse;
 static CODEX_PATH: OnceLock<Option<String>> = OnceLock::new();
 static CLAUDE_PATH: OnceLock<Option<String>> = OnceLock::new();
 
+/// Track whether we've had a first message (for --continue optimization)
+static CLAUDE_HAS_SESSION: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn find_cli(binary: &str) -> Option<&'static str> {
     let cell = match binary {
         "codex" => &CODEX_PATH,
@@ -61,33 +64,40 @@ pub struct CliBackend;
 impl CliBackend {
     /// Run a prompt through the Codex CLI (uses user's ChatGPT subscription)
     pub async fn codex_chat(messages: &[ChatMessage], tools: &[ToolSchema]) -> Result<LlmResponse> {
-        let prompt = Self::build_prompt(messages, tools);
-        let output = Self::run_cli("codex", &prompt).await?;
-        Ok(LlmResponse {
-            content: output,
-            tool_calls: Vec::new(), // CLI doesn't return structured tool calls
-        })
-    }
-
-    /// Run a prompt through the Claude CLI (uses user's Anthropic auth)
-    pub async fn claude_chat(messages: &[ChatMessage], tools: &[ToolSchema]) -> Result<LlmResponse> {
-        let prompt = Self::build_prompt(messages, tools);
-        let output = Self::run_cli("claude", &prompt).await?;
+        let prompt = Self::build_prompt(messages, tools, false);
+        let output = Self::run_cli("codex", &prompt, false).await?;
         Ok(LlmResponse {
             content: output,
             tool_calls: Vec::new(),
         })
     }
 
-    /// Build a prompt for the CLI backend.
-    /// Only sends the system prompt (identity) and the last user message.
-    /// The CLI has its own context management — don't overwhelm it.
-    fn build_prompt(messages: &[ChatMessage], _tools: &[ToolSchema]) -> String {
+    /// Run a prompt through the Claude CLI (uses user's Anthropic auth)
+    pub async fn claude_chat(messages: &[ChatMessage], tools: &[ToolSchema]) -> Result<LlmResponse> {
+        let is_cont = CLAUDE_HAS_SESSION.load(std::sync::atomic::Ordering::Relaxed);
+        let prompt = Self::build_prompt(messages, tools, is_cont);
+        let output = Self::run_cli("claude", &prompt, is_cont).await?;
+        CLAUDE_HAS_SESSION.store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(LlmResponse {
+            content: output,
+            tool_calls: Vec::new(),
+        })
+    }
+
+    /// Build prompt — first call includes identity, subsequent calls just the user message
+    fn build_prompt(messages: &[ChatMessage], _tools: &[ToolSchema], is_continuation: bool) -> String {
+        // For continuations, just send the user's message — CLI already has context
+        if is_continuation {
+            return messages.iter().rev()
+                .find(|m| m.role == "user")
+                .map(|m| m.content.clone())
+                .unwrap_or_default();
+        }
+
         let mut parts = Vec::new();
 
-        // Include system prompt (identity files) but truncated
+        // First message: include identity context (truncated)
         if let Some(sys) = messages.iter().find(|m| m.role == "system") {
-            // Take first 500 chars of system prompt to set identity
             let truncated = if sys.content.len() > 500 {
                 format!("{}...", &sys.content[..500])
             } else {
@@ -96,7 +106,6 @@ impl CliBackend {
             parts.push(truncated);
         }
 
-        // Include last user message only
         if let Some(user_msg) = messages.iter().rev().find(|m| m.role == "user") {
             parts.push(user_msg.content.clone());
         }
@@ -104,7 +113,7 @@ impl CliBackend {
         parts.join("\n\n")
     }
 
-    async fn run_cli(binary: &str, prompt: &str) -> Result<String> {
+    async fn run_cli(binary: &str, prompt: &str, continue_session: bool) -> Result<String> {
         // Check CLI is available (cached after first lookup)
         let cli_path = find_cli(binary)
             .ok_or_else(|| HomardError::Llm(format!(
@@ -115,7 +124,8 @@ impl CliBackend {
 
         // Run CLI via sh -c with echo piped to stdin (codex needs stdin closed)
         let shell_cmd = if binary == "claude" {
-            format!("echo '' | {} -p {} --output-format text", cli_path, shell_escape(prompt))
+            let cont_flag = if continue_session { " --continue" } else { "" };
+            format!("echo '' | {} -p {}{} --output-format text", cli_path, shell_escape(prompt), cont_flag)
         } else {
             format!("echo '' | {} exec {}", cli_path, shell_escape(prompt))
         };
