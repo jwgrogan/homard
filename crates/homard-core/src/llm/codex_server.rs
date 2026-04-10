@@ -105,8 +105,26 @@ impl CodexServer {
         Ok(())
     }
 
-    /// Send a chat message and return the response
+    /// Send a chat message and return the response.
+    /// If the codex process crashes, automatically restarts and retries once.
     pub async fn chat(&self, user_message: &str) -> Result<LlmResponse> {
+        match self.chat_inner(user_message).await {
+            Ok(resp) => Ok(resp),
+            Err(e) => {
+                // Process may have died — clear it and retry once
+                tracing::warn!("Codex chat failed, restarting: {}", e);
+                {
+                    let mut proc = self.process.lock().await;
+                    if let Some(mut cp) = proc.take() {
+                        let _ = cp._child.kill().await;
+                    }
+                }
+                self.chat_inner(user_message).await
+            }
+        }
+    }
+
+    async fn chat_inner(&self, user_message: &str) -> Result<LlmResponse> {
         self.ensure_running().await?;
 
         let mut proc = self.process.lock().await;
@@ -149,9 +167,7 @@ impl CodexServer {
                 "turn/completed" => {
                     break;
                 }
-                _ => {
-                    // Skip other notifications (thread/status/changed, item/started, etc.)
-                }
+                _ => {}
             }
         }
 
