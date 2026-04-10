@@ -2,6 +2,7 @@ pub mod config;
 pub mod error;
 #[cfg(target_os = "macos")]
 pub mod keychain;
+pub mod secrets;
 pub mod health;
 pub mod launchd;
 pub mod schedule;

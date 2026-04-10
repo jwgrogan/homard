@@ -10,6 +10,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Interactive setup wizard — configure provider, Telegram, and always-on
+    Setup,
     /// Start the Homard daemon
     Serve,
     /// Chat with Homard (one-shot: homard chat -m "message")
@@ -36,6 +38,9 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Setup => {
+            setup_wizard().await?;
+        }
         Commands::Serve => {
             eprintln!("[homard] serve command starting...");
             let dirs = homard_core::config::HomardDirs::default_path();
@@ -471,6 +476,253 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+async fn setup_wizard() -> anyhow::Result<()> {
+    use std::io::{self, Write, BufRead};
+
+    let dirs = homard_core::config::HomardDirs::default_path();
+    dirs.ensure_all()?;
+
+    // Copy defaults
+    let defaults_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../defaults");
+    let identity_files = ["BOOTSTRAP.md", "SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md", "TOOLS.md", "HEARTBEAT.md", "MEMORY.md"];
+    for filename in &identity_files {
+        let target = dirs.root().join(filename);
+        if !target.exists() {
+            let source = defaults_dir.join(filename);
+            if source.exists() { let _ = std::fs::copy(&source, &target); }
+        }
+    }
+
+    println!();
+    println!("  🦞 Homard Setup");
+    println!("  ───────────────");
+    println!();
+
+    let stdin = io::stdin();
+    let mut input = String::new();
+
+    // Step 1: Provider
+    println!("  1. Choose your AI provider:");
+    println!();
+    let has_codex = std::process::Command::new("which").arg("codex").output().map(|o| o.status.success()).unwrap_or(false);
+    let has_claude = std::process::Command::new("which").arg("claude").output().map(|o| o.status.success()).unwrap_or(false);
+    println!("     [1] Codex CLI {}  (ChatGPT Plus/Pro)", if has_codex { "✓ installed" } else { "— not installed" });
+    println!("     [2] Claude CLI {} (Claude Pro/Max)", if has_claude { "✓ installed" } else { "— not installed" });
+    println!("     [3] Both");
+    println!();
+    print!("  > ");
+    io::stdout().flush()?;
+    input.clear();
+    stdin.lock().read_line(&mut input)?;
+    let choice = input.trim();
+
+    let use_codex = choice == "1" || choice == "3" || choice.is_empty();
+    let use_claude = choice == "2" || choice == "3";
+
+    // Install missing CLIs
+    if use_codex && !has_codex {
+        println!();
+        print!("  Codex CLI not found. Install it? [Y/n] ");
+        io::stdout().flush()?;
+        input.clear();
+        stdin.lock().read_line(&mut input)?;
+        if !input.trim().eq_ignore_ascii_case("n") {
+            println!("  Installing Codex CLI...");
+            let status = std::process::Command::new("npm")
+                .args(["install", "-g", "@openai/codex"])
+                .status();
+            match status {
+                Ok(s) if s.success() => println!("  ✓ Codex CLI installed"),
+                _ => println!("  ✗ Failed — run manually: npm install -g @openai/codex"),
+            }
+        }
+    }
+
+    if use_claude && !has_claude {
+        println!();
+        print!("  Claude CLI not found. Install it? [Y/n] ");
+        io::stdout().flush()?;
+        input.clear();
+        stdin.lock().read_line(&mut input)?;
+        if !input.trim().eq_ignore_ascii_case("n") {
+            println!("  Installing Claude CLI...");
+            let status = std::process::Command::new("npm")
+                .args(["install", "-g", "@anthropic-ai/claude-code"])
+                .status();
+            match status {
+                Ok(s) if s.success() => println!("  ✓ Claude CLI installed"),
+                _ => println!("  ✗ Failed — run manually: npm install -g @anthropic-ai/claude-code"),
+            }
+        }
+    }
+
+    // Login to provider
+    if use_codex {
+        let logged_in = std::path::Path::new(&dirs::home_dir().unwrap_or_default().join(".codex/auth.json")).exists();
+        if !logged_in {
+            println!();
+            println!("  Log in to Codex (uses your ChatGPT Plus/Pro account):");
+            let _ = std::process::Command::new("codex").arg("login").status();
+        } else {
+            println!("  ✓ Codex already logged in");
+        }
+    }
+
+    if use_claude {
+        println!();
+        println!("  Checking Claude login...");
+        let status_output = std::process::Command::new("claude")
+            .args(["auth", "status"])
+            .output();
+        let logged_in = status_output.map(|o| {
+            let text = String::from_utf8_lossy(&o.stdout);
+            text.contains("loggedIn\": true") || text.contains("\"loggedIn\":true")
+        }).unwrap_or(false);
+
+        if !logged_in {
+            println!("  Log in to Claude (uses your Claude Pro/Max account):");
+            let _ = std::process::Command::new("claude").arg("login").status();
+        } else {
+            println!("  ✓ Claude already logged in");
+        }
+    }
+
+    // Save provider config
+    let mut config = homard_core::config::HomardConfig::load_or_default(&dirs.config_path());
+    if use_codex {
+        config.providers.insert("codex_cli".to_string(), homard_core::types::ProviderConfig {
+            kind: homard_core::types::ProviderKind::CodexCli,
+            auth_type: "cli".to_string(),
+            model: "gpt-5.4".to_string(),
+            client_id: None, token_keychain_ref: None, api_key_keychain_ref: None, base_url: None,
+        });
+        config.active_provider = "codex_cli".to_string();
+    }
+    if use_claude {
+        config.providers.insert("claude_cli".to_string(), homard_core::types::ProviderConfig {
+            kind: homard_core::types::ProviderKind::ClaudeCli,
+            auth_type: "cli".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
+            client_id: None, token_keychain_ref: None, api_key_keychain_ref: None, base_url: None,
+        });
+        if !use_codex { config.active_provider = "claude_cli".to_string(); }
+    }
+
+    // Step 2: Telegram
+    println!();
+    println!("  2. Telegram (remote access — optional):");
+    println!("     Create a bot at https://t.me/BotFather");
+    print!("     Bot token (or Enter to skip): ");
+    io::stdout().flush()?;
+    input.clear();
+    stdin.lock().read_line(&mut input)?;
+    let token = input.trim().to_string();
+
+    if !token.is_empty() {
+        let tg_client = homard_core::telegram::TelegramClient::new(&token);
+        match tg_client.verify().await {
+            Ok(bot_name) => {
+                println!("  ✓ Bot @{} connected", bot_name);
+                #[cfg(target_os = "macos")]
+                { let _ = homard_core::config::save_telegram_token(&dirs, &token); }
+                // Reload config after token save
+                config = homard_core::config::HomardConfig::load_or_default(&dirs.config_path());
+
+                print!("     Your Telegram @username: ");
+                io::stdout().flush()?;
+                input.clear();
+                stdin.lock().read_line(&mut input)?;
+                let username = input.trim().trim_start_matches('@').to_string();
+                if !username.is_empty() {
+                    if !config.telegram.allowed_usernames.contains(&username) {
+                        config.telegram.allowed_usernames.push(username.clone());
+                    }
+                    println!("  ✓ @{} added to allowlist", username);
+                }
+            }
+            Err(e) => println!("  ✗ Invalid token: {}", e),
+        }
+    }
+
+    // Step 3: Your name
+    println!();
+    print!("  3. Your first name: ");
+    io::stdout().flush()?;
+    input.clear();
+    stdin.lock().read_line(&mut input)?;
+    let name = input.trim().to_string();
+
+    if !name.is_empty() {
+        let user_md = format!("# User Profile\n\nName: {}\n", name);
+        let _ = std::fs::write(dirs.root().join("USER.md"), user_md);
+        println!("  ✓ Saved");
+    }
+
+    // Step 4: Always-on
+    println!();
+    print!("  4. Enable always-on (server mode)? [Y/n] ");
+    io::stdout().flush()?;
+    input.clear();
+    stdin.lock().read_line(&mut input)?;
+
+    if !input.trim().eq_ignore_ascii_case("n") {
+        config.server_mode = homard_core::types::ServerMode::On;
+
+        #[cfg(target_os = "macos")]
+        {
+            let bin_path = homard_core::schedule::resolve_homard_bin()
+                .unwrap_or_else(|_| "homard".to_string());
+            let home = dirs::home_dir().expect("home dir");
+            let plist = format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.homard.daemon</string>
+    <key>ProgramArguments</key><array><string>{}</string><string>serve</string></array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>10</integer>
+    <key>StandardOutPath</key><string>{}/.homard/logs/daemon.stdout.log</string>
+    <key>StandardErrorPath</key><string>{}/.homard/logs/daemon.stderr.log</string>
+    <key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
+</dict>
+</plist>"#, bin_path, home.display(), home.display());
+            let plist_path = home.join("Library/LaunchAgents/com.homard.daemon.plist");
+            std::fs::create_dir_all(plist_path.parent().unwrap())?;
+            std::fs::write(&plist_path, plist)?;
+            let uid = unsafe { libc::getuid() };
+            let _ = std::process::Command::new("launchctl")
+                .args(["bootstrap", &format!("gui/{}", uid), &plist_path.to_string_lossy()])
+                .output();
+            println!("  ✓ Always-on enabled (launchd)");
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            println!("  ✓ Always-on: run `homard install` to set up Windows Task Scheduler");
+        }
+    }
+
+    // Save config
+    config.bootstrapped = true;
+    config.save(&dirs.config_path())?;
+
+    println!();
+    println!("  ───────────────");
+    println!("  🦞 Homard is ready!");
+    println!();
+    println!("  Chat:     homard chat");
+    println!("  Daemon:   homard serve");
+    println!("  Status:   homard status");
+    if !token.is_empty() {
+        println!("  Telegram: message your bot");
+    }
+    println!();
 
     Ok(())
 }

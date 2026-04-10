@@ -18,3 +18,4 @@ reqwest = { version = "0.12", features = ["json"] }
 serde_json = { workspace = true }
 dirs = "6"
 tokio-util = { version = "0.7", features = ["rt"] }
+libc = "0.2"
