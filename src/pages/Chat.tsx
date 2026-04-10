@@ -3,15 +3,29 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { sendChat, getStatus, apiFetch, type ChatMessage } from "../lib/api";
 
-function MessageBubble({ msg }: { msg: ChatMessage }) {
+function Avatar({ emoji, isUser }: { emoji: string; isUser: boolean }) {
+  return (
+    <div
+      className="w-7 h-7 rounded-full flex items-center justify-center text-[14px] shrink-0"
+      style={{
+        background: isUser ? "var(--sage)" : "var(--coral)",
+      }}
+    >
+      {emoji}
+    </div>
+  );
+}
+
+function MessageBubble({ msg, botEmoji, userInitial }: { msg: ChatMessage; botEmoji: string; userInitial: string }) {
   const isUser = msg.role === "user";
   const isSystem = msg.role === "system";
   if (isSystem) return null;
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-2`}>
+    <div className={`flex gap-2 ${isUser ? "flex-row-reverse" : "flex-row"} mb-2 items-end`}>
+      <Avatar emoji={isUser ? userInitial : botEmoji} isUser={isUser} />
       <div
-        className="max-w-[80%] px-3 py-2 text-[13px] leading-relaxed"
+        className="max-w-[75%] px-3 py-2 text-[13px] leading-relaxed"
         style={{
           background: isUser ? "var(--sage)" : "var(--cream-card)",
           color: "var(--navy)",
@@ -62,12 +76,27 @@ export default function Chat() {
   const [hasProvider, setHasProvider] = useState<boolean | null>(null);
   const [channel, setChannel] = useState("chat");
   const [channels, setChannels] = useState<string[]>(["chat"]);
+  const [botEmoji, setBotEmoji] = useState("🦞");
+  const [userInitial, setUserInitial] = useState("Y");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load channels and messages
+  // Load identity + channels + messages
   useEffect(() => {
     getStatus().then(s => setHasProvider(s?.active_provider != null));
+    // Load bot emoji from IDENTITY.md
+    apiFetch("/files/IDENTITY.md").then(r => r.text()).then(text => {
+      const emojiMatch = text.match(/emoji:\s*(.+)/);
+      if (emojiMatch) setBotEmoji(emojiMatch[1].trim());
+    }).catch(() => {});
+    // Load user initial from USER.md
+    apiFetch("/files/USER.md").then(r => r.text()).then(text => {
+      const nameMatch = text.match(/[Nn]ame:\s*(.+)/);
+      if (nameMatch) {
+        const first = nameMatch[1].trim()[0];
+        if (first) setUserInitial(first.toUpperCase());
+      }
+    }).catch(() => {});
     // Discover channels from conversations
     apiFetch("/conversations").then(r => r.json()).then((list: string[]) => {
       if (list.length > 0) setChannels(list);
@@ -158,10 +187,11 @@ export default function Chat() {
           </div>
         )}
         {messages.map((msg, i) => (
-          <MessageBubble key={`${msg.role}-${msg.timestamp || i}`} msg={msg} />
+          <MessageBubble key={`${msg.role}-${msg.timestamp || i}`} msg={msg} botEmoji={botEmoji} userInitial={userInitial} />
         ))}
         {loading && (
-          <div className="flex justify-start mb-2">
+          <div className="flex gap-2 items-end mb-2">
+            <Avatar emoji={botEmoji} isUser={false} />
             <div
               className="px-3 py-2 text-[13px]"
               style={{

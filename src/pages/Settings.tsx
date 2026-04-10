@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch, getStatus, setPermissions, getTelegramStatus, readFile, writeFile, type DaemonStatus } from "../lib/api";
 
-type SettingsTab = "providers" | "permissions" | "telegram" | "identity" | "daemon";
+type SettingsTab = "about" | "providers" | "permissions" | "telegram" | "identity" | "daemon";
 
 const providerModels: Record<string, string[]> = {
   codex_cli: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"],
@@ -356,6 +356,131 @@ function TelegramPanel() {
   );
 }
 
+function AboutPanel() {
+  const [botName, setBotName] = useState("Homard");
+  const [botEmoji, setBotEmoji] = useState("🦞");
+  const [botTagline, setBotTagline] = useState("Your personal crustacean");
+  const [userName, setUserName] = useState("");
+  const [userRole, setUserRole] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiFetch("/files/IDENTITY.md").then(r => r.text()).then(text => {
+      const n = text.match(/name:\s*(.+)/); if (n) setBotName(n[1].trim());
+      const e = text.match(/emoji:\s*(.+)/); if (e) setBotEmoji(e[1].trim());
+      const t = text.match(/tagline:\s*(.+)/); if (t) setBotTagline(t[1].trim());
+    }).catch(() => {});
+    apiFetch("/files/USER.md").then(r => r.text()).then(text => {
+      const n = text.match(/[Nn]ame:\s*(.+)/); if (n) setUserName(n[1].trim());
+      const r = text.match(/[Rr]ole:\s*(.+)/); if (r) setUserRole(r[1].trim());
+    }).catch(() => {});
+  }, []);
+
+  const saveIdentity = async () => {
+    setSaving(true);
+    await writeFile("IDENTITY.md", `name: ${botName}\nemoji: ${botEmoji}\ntagline: ${botTagline}\n`);
+    // Update title
+    document.title = userName
+      ? `${botName} — ${userName.split(" ")[0]}'s personal crustacean ${botEmoji}`
+      : `${botName} — your personal crustacean ${botEmoji}`;
+    setSaving(false);
+  };
+
+  const saveUser = async () => {
+    setSaving(true);
+    const res = await apiFetch("/files/USER.md");
+    let text = await res.text();
+    // Update name and role in existing content
+    if (text.match(/[Nn]ame:\s*.+/)) {
+      text = text.replace(/[Nn]ame:\s*.+/, `Name: ${userName}`);
+    } else {
+      text = `# User Profile\n\nName: ${userName}\n` + text;
+    }
+    if (userRole) {
+      if (text.match(/[Rr]ole:\s*.+/)) {
+        text = text.replace(/[Rr]ole:\s*.+/, `Role: ${userRole}`);
+      } else {
+        text += `\nRole: ${userRole}\n`;
+      }
+    }
+    await writeFile("USER.md", text);
+    setSaving(false);
+  };
+
+  return (
+    <div className="flex flex-col">
+      {/* About Homard */}
+      <div className="px-3 py-1.5 text-[11px] font-medium" style={{ color: "var(--navy-muted)", borderBottom: "0.5px solid var(--border)" }}>
+        About Homard
+      </div>
+      <div className="px-3 py-2 flex flex-col gap-2" style={{ borderBottom: "0.5px solid var(--border)" }}>
+        <div className="flex gap-2 items-center">
+          <input
+            value={botEmoji}
+            onChange={e => setBotEmoji(e.target.value)}
+            className="w-10 h-10 text-center text-[24px] rounded-lg outline-none"
+            style={{ background: "var(--cream-card)", border: "0.5px solid var(--border)" }}
+            maxLength={4}
+          />
+          <div className="flex-1 flex flex-col gap-1">
+            <input
+              value={botName}
+              onChange={e => setBotName(e.target.value)}
+              placeholder="Name"
+              className="text-[13px] font-medium px-2 py-1 rounded outline-none"
+              style={{ background: "var(--cream-card)", color: "var(--navy)", border: "0.5px solid var(--border)" }}
+            />
+            <input
+              value={botTagline}
+              onChange={e => setBotTagline(e.target.value)}
+              placeholder="Tagline"
+              className="text-[11px] px-2 py-0.5 rounded outline-none"
+              style={{ background: "var(--cream-card)", color: "var(--navy-muted)", border: "0.5px solid var(--border)" }}
+            />
+          </div>
+        </div>
+        <button
+          onClick={saveIdentity}
+          disabled={saving}
+          className="self-end px-2.5 py-1 rounded text-[11px] font-medium disabled:opacity-30"
+          style={{ background: "var(--sage)", color: "var(--navy)" }}
+        >
+          {saving ? "..." : "Save"}
+        </button>
+      </div>
+
+      {/* About Me */}
+      <div className="px-3 py-1.5 text-[11px] font-medium" style={{ color: "var(--navy-muted)", borderBottom: "0.5px solid var(--border)" }}>
+        About Me
+      </div>
+      <div className="px-3 py-2 flex flex-col gap-1.5" style={{ borderBottom: "0.5px solid var(--border)" }}>
+        <input
+          value={userName}
+          onChange={e => setUserName(e.target.value)}
+          placeholder="Your name"
+          className="text-[13px] px-2 py-1 rounded outline-none"
+          style={{ background: "var(--cream-card)", color: "var(--navy)", border: "0.5px solid var(--border)" }}
+        />
+        <input
+          value={userRole}
+          onChange={e => setUserRole(e.target.value)}
+          placeholder="What you do (e.g. iOS developer, designer)"
+          className="text-[11px] px-2 py-1 rounded outline-none"
+          style={{ background: "var(--cream-card)", color: "var(--navy-muted)", border: "0.5px solid var(--border)" }}
+        />
+        <button
+          onClick={saveUser}
+          disabled={saving}
+          className="self-end px-2.5 py-1 rounded text-[11px] font-medium disabled:opacity-30"
+          style={{ background: "var(--sage)", color: "var(--navy)" }}
+        >
+          {saving ? "..." : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function DaemonPanel() {
   const [serverMode, setServerMode] = useState<string>("off");
   const [launchdInstalled, setLaunchdInstalled] = useState(false);
@@ -487,7 +612,7 @@ function IdentityPanel() {
 }
 
 export default function Settings() {
-  const [tab, setTab] = useState<SettingsTab>("providers");
+  const [tab, setTab] = useState<SettingsTab>("about");
   const [status, setStatus] = useState<DaemonStatus | null>(null);
   const [connectedProviders, setConnectedProviders] = useState<Record<string, { model?: string }>>({});
 
@@ -514,10 +639,11 @@ export default function Settings() {
   }, []);
 
   const tabs: { id: SettingsTab; label: string }[] = [
+    { id: "about", label: "About" },
     { id: "providers", label: "Providers" },
-    { id: "permissions", label: "Permissions" },
+    { id: "permissions", label: "Perms" },
     { id: "telegram", label: "Telegram" },
-    { id: "identity", label: "Identity" },
+    { id: "identity", label: "Files" },
     { id: "daemon", label: "Daemon" },
   ];
 
@@ -545,6 +671,7 @@ export default function Settings() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        {tab === "about" && <AboutPanel />}
         {tab === "providers" && (
           <div className="flex flex-col">
             <div className="px-3 py-1.5 text-[11px] font-medium" style={{ color: "var(--navy-muted)", borderBottom: "0.5px solid var(--border)" }}>
