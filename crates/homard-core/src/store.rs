@@ -108,7 +108,7 @@ impl Store {
     // Conversation methods
     pub fn list_channels(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT channel FROM conversations ORDER BY MAX(rowid) DESC"
+            "SELECT channel FROM conversations GROUP BY channel ORDER BY MAX(rowid) DESC"
         )?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut channels: Vec<String> = rows.filter_map(|r| r.ok()).collect();

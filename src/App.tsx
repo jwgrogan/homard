@@ -6,27 +6,16 @@ import { apiFetch } from "./lib/api";
 
 type Tab = "chat" | "activity" | "settings";
 
-const ChatIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-  </svg>
-);
-
-const ActivityIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-  </svg>
-);
-
-const SettingsIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-  </svg>
-);
+const icons: Record<Tab, string> = {
+  chat: "💬",
+  activity: "📊",
+  settings: "⚙️",
+};
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("chat");
   const [daemonOnline, setDaemonOnline] = useState(true);
+  const [wide, setWide] = useState(window.innerWidth > 600);
 
   useEffect(() => {
     const check = () => apiFetch("/status")
@@ -37,13 +26,17 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Set window title with user's name from IDENTITY.md or USER.md
+  useEffect(() => {
+    const onResize = () => setWide(window.innerWidth > 600);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
         const res = await apiFetch("/files/USER.md");
         const text = await res.text();
-        // Look for "Name: X" or first line after # that has a name
         const nameMatch = text.match(/[Nn]ame:\s*(.+)/);
         const name = nameMatch ? nameMatch[1].trim().split(" ")[0] : null;
         document.title = name && name.length > 1
@@ -53,25 +46,82 @@ export default function App() {
     })();
   }, []);
 
-  const tabs = [
-    { id: "chat" as Tab, label: "Chat", Icon: ChatIcon },
-    { id: "activity" as Tab, label: "Activity", Icon: ActivityIcon },
-    { id: "settings" as Tab, label: "Settings", Icon: SettingsIcon },
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "chat", label: "Chat" },
+    { id: "activity", label: "Activity" },
+    { id: "settings", label: "Settings" },
   ];
 
+  if (wide) {
+    // Wide layout: sidebar + content
+    return (
+      <div className="flex h-screen">
+        {/* Sidebar */}
+        <div
+          className="w-48 shrink-0 flex flex-col border-r"
+          style={{ borderColor: "var(--border)", background: "var(--sage)" }}
+        >
+          {/* Sidebar nav */}
+          <div className="flex flex-col gap-0.5 p-2 mt-6">
+            {tabs.map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12px] font-medium transition-all text-left"
+                style={{
+                  background: tab === id ? "rgba(255,255,255,0.7)" : "transparent",
+                  color: tab === id ? "var(--navy)" : "var(--navy-muted)",
+                }}
+              >
+                <span className="text-[14px]">{icons[id]}</span>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Status at bottom */}
+          <div className="mt-auto p-2">
+            {!daemonOnline && (
+              <div className="text-[10px] px-2 py-1 rounded" style={{ background: "var(--error-bg)", color: "var(--error)" }}>
+                Daemon offline
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 px-2 py-1 text-[10px]" style={{ color: "var(--navy-muted)" }}>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: daemonOnline ? "var(--success)" : "var(--error)" }} />
+              {daemonOnline ? "Connected" : "Offline"}
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <main className="flex-1 overflow-hidden">
+          {tab === "chat" && <Chat />}
+          {tab === "activity" && <Activity />}
+          {tab === "settings" && <Settings />}
+        </main>
+      </div>
+    );
+  }
+
+  // Narrow layout: segmented control + content (phone-like)
   return (
     <div className="flex flex-col h-screen">
-      {/* Segmented control below native title bar */}
+      {!daemonOnline && (
+        <div className="px-3 py-1 text-[11px] text-center" style={{ background: "var(--error-bg)", color: "var(--error)" }}>
+          Daemon offline
+        </div>
+      )}
+
+      {/* Segmented control */}
       <div
         className="px-3 py-1.5 flex items-center justify-center border-b shrink-0"
         style={{ borderColor: "var(--border)" }}
       >
-        {/* Segmented control */}
         <div
           className="flex gap-0.5 p-0.5 rounded-md"
           style={{ background: "rgba(27, 45, 79, 0.06)" }}
         >
-          {tabs.map(({ id, label, Icon }) => (
+          {tabs.map(({ id, label }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
@@ -82,27 +132,16 @@ export default function App() {
                 boxShadow: tab === id ? "0 1px 3px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.04)" : "none",
               }}
             >
-              <Icon />
               {label}
             </button>
           ))}
         </div>
-
-        {/* Status dot */}
         <span
           className="w-2 h-2 rounded-full ml-2"
           style={{ background: daemonOnline ? "var(--success)" : "var(--error)" }}
         />
       </div>
 
-      {/* Offline banner */}
-      {!daemonOnline && (
-        <div className="px-3 py-1 text-[11px] text-center" style={{ background: "var(--error-bg)", color: "var(--error)" }}>
-          Daemon offline — <code className="font-mono">homard serve</code>
-        </div>
-      )}
-
-      {/* Content */}
       <main className="flex-1 overflow-hidden">
         {tab === "chat" && <Chat />}
         {tab === "activity" && <Activity />}
