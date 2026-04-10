@@ -106,6 +106,19 @@ impl Store {
     }
 
     // Conversation methods
+    pub fn list_channels(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT channel FROM conversations ORDER BY MAX(rowid) DESC"
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut channels: Vec<String> = rows.filter_map(|r| r.ok()).collect();
+        // Always include "chat" even if empty
+        if !channels.contains(&"chat".to_string()) {
+            channels.insert(0, "chat".to_string());
+        }
+        Ok(channels)
+    }
+
     pub fn save_message(&self, channel: &str, msg: &ChatMessage) -> Result<()> {
         let tool_calls_json = msg.tool_calls.as_ref().map(|tc| serde_json::to_string(tc).unwrap_or_default());
         self.conn.execute(

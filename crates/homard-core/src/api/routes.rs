@@ -85,9 +85,10 @@ pub struct ConversationQuery {
     pub limit: Option<usize>,
 }
 
-pub async fn list_conversations(State(_state): State<AppState>) -> Json<Vec<String>> {
-    // List conversation channels from the database
-    Json(vec!["chat".to_string()])
+pub async fn list_conversations(State(state): State<AppState>) -> Json<Vec<String>> {
+    let store = state.store.lock().await;
+    let channels = store.list_channels().unwrap_or_else(|_| vec!["chat".to_string()]);
+    Json(channels)
 }
 
 pub async fn get_conversation(
