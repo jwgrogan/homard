@@ -1,6 +1,26 @@
+use std::sync::OnceLock;
 use crate::types::*;
 use crate::error::{HomardError, Result};
 use super::client::LlmResponse;
+
+static CODEX_PATH: OnceLock<Option<String>> = OnceLock::new();
+static CLAUDE_PATH: OnceLock<Option<String>> = OnceLock::new();
+
+fn find_cli(binary: &str) -> Option<&'static str> {
+    let cell = match binary {
+        "codex" => &CODEX_PATH,
+        "claude" => &CLAUDE_PATH,
+        _ => return None,
+    };
+    cell.get_or_init(|| {
+        std::process::Command::new("which")
+            .arg(binary)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    }).as_deref()
+}
 
 /// Strip ANSI escape codes and control characters from CLI output
 fn strip_ansi(s: &str) -> String {
@@ -85,26 +105,19 @@ impl CliBackend {
     }
 
     async fn run_cli(binary: &str, prompt: &str) -> Result<String> {
-        // Check CLI is available
-        let which = tokio::process::Command::new("which")
-            .arg(binary)
-            .output()
-            .await
-            .map_err(|e| HomardError::Llm(format!("{} not found: {}", binary, e)))?;
-
-        if !which.status.success() {
-            return Err(HomardError::Llm(format!(
+        // Check CLI is available (cached after first lookup)
+        let cli_path = find_cli(binary)
+            .ok_or_else(|| HomardError::Llm(format!(
                 "{} CLI not installed. Run `{}` to install it.",
                 binary,
                 if binary == "codex" { "npm i -g @openai/codex" } else { "npm i -g @anthropic-ai/claude-code" }
-            )));
-        }
+            )))?;
 
         // Run CLI via sh -c with echo piped to stdin (codex needs stdin closed)
         let shell_cmd = if binary == "claude" {
-            format!("echo '' | claude -p {} --output-format text", shell_escape(prompt))
+            format!("echo '' | {} -p {} --output-format text", cli_path, shell_escape(prompt))
         } else {
-            format!("echo '' | codex exec {}", shell_escape(prompt))
+            format!("echo '' | {} exec {}", cli_path, shell_escape(prompt))
         };
 
         let mut cmd = tokio::process::Command::new("sh");

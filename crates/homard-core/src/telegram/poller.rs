@@ -168,19 +168,23 @@ pub async fn run_poller(
                         let _ = client.send_message(chat_id, "Send /pair <code> to connect.").await;
                     }
                     None if is_paired => {
-                        // Route through agent loop
+                        // Route through agent loop (spawned concurrently to avoid blocking the poller)
                         let channel = format!("telegram_{}", chat_id);
                         // Send typing indicator
                         let _ = bot.send_chat_action(teloxide::types::ChatId(chat_id), teloxide::types::ChatAction::Typing).await;
 
-                        match agent.run(&channel, &text, Trigger::Telegram).await {
-                            Ok(response) => {
-                                let _ = client.chunk_and_send(chat_id, &response).await;
+                        let agent_clone = agent.clone();
+                        let client_clone = client.clone();
+                        tokio::spawn(async move {
+                            match agent_clone.run(&channel, &text, Trigger::Telegram).await {
+                                Ok(response) => {
+                                    let _ = client_clone.chunk_and_send(chat_id, &response).await;
+                                }
+                                Err(e) => {
+                                    let _ = client_clone.send_message(chat_id, &format!("Error: {}", e)).await;
+                                }
                             }
-                            Err(e) => {
-                                let _ = client.send_message(chat_id, &format!("Error: {}", e)).await;
-                            }
-                        }
+                        });
                     }
                     _ => {}
                 }

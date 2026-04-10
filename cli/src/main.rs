@@ -62,6 +62,12 @@ async fn main() -> anyhow::Result<()> {
                 homard_core::store::Store::open(&dirs.db_path())?,
             ));
 
+            // Clean up zombie "running" runs from previous daemon crash
+            {
+                let store_guard = store.lock().await;
+                let _ = store_guard.cleanup_stale_runs();
+            }
+
             eprintln!("[homard] store opened");
             // Initialize OAuth manager
             eprintln!("[homard] creating oauth manager...");
@@ -78,10 +84,12 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("[homard] keychain loading complete");
 
             eprintln!("[homard] oauth initialized");
-            // Initialize LLM client
+            // Shared config Arc for LLM client and AppState
+            let shared_config = Arc::new(tokio::sync::RwLock::new(config.clone()));
+
+            // Initialize LLM client (reads provider config from shared Arc, no disk reload)
             let llm = Arc::new(homard_core::llm::client::LlmClient::new(
-                config.providers.clone(),
-                config.active_provider.clone(),
+                shared_config.clone(),
                 oauth.clone(),
             ));
 
@@ -254,7 +262,7 @@ async fn main() -> anyhow::Result<()> {
             let api_state = homard_core::api::AppState {
                 agent: agent.clone(),
                 store: store.clone(),
-                config: Arc::new(tokio::sync::RwLock::new(config.clone())),
+                config: shared_config.clone(),
                 security: security.clone(),
                 oauth: oauth.clone(),
                 homard_dir: dirs.root().to_path_buf(),

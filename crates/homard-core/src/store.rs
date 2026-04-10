@@ -340,6 +340,19 @@ impl Store {
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
+    /// Clean up runs and sessions left in 'running' state from a previous daemon crash
+    pub fn cleanup_stale_runs(&self) -> Result<()> {
+        self.conn.execute(
+            "UPDATE runs SET status = 'error', error_message = 'Daemon restarted' WHERE status = 'running'",
+            [],
+        )?;
+        self.conn.execute(
+            "UPDATE cli_sessions SET status = 'error', error = 'Daemon restarted' WHERE status = 'running'",
+            [],
+        )?;
+        Ok(())
+    }
+
     // Audit log
     pub fn log_audit(&self, tool_name: &str, arguments: Option<&str>, result: Option<&str>, approved: bool) -> Result<()> {
         self.conn.execute(

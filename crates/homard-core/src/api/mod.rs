@@ -23,18 +23,11 @@ pub struct AppState {
     pub stop_tx: tokio::sync::watch::Sender<bool>,
 }
 
-async fn auth_middleware(
+async fn auth_check(
+    expected: String,
     req: Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> Response {
-    let dirs = crate::config::HomardDirs::default_path();
-    let token_path = dirs.root().join("api.token");
-    let expected = std::fs::read_to_string(&token_path).unwrap_or_default().trim().to_string();
-
-    if expected.is_empty() {
-        return next.run(req).await; // No token configured, skip auth
-    }
-
     let auth_header = req.headers().get("authorization")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
@@ -45,19 +38,20 @@ async fn auth_middleware(
 
     let is_tauri = origin == "tauri://localhost";
     let is_auth_callback = req.uri().path().starts_with("/auth/");
-    let has_valid_token = auth_header == format!("Bearer {}", expected);
+    let has_valid_token = !expected.is_empty() && auth_header == format!("Bearer {}", expected);
 
-    if has_valid_token || is_tauri || is_auth_callback {
+    if has_valid_token || is_tauri || is_auth_callback || expected.is_empty() {
         next.run(req).await
     } else {
-        axum::response::Response::builder()
+        Response::builder()
             .status(401)
             .body(axum::body::Body::from("Unauthorized"))
             .unwrap()
     }
 }
 
-pub fn create_router(state: AppState) -> Router {
+pub fn create_router(state: AppState, api_token: String) -> Router {
+    let token = api_token;
     Router::new()
         .route("/chat", post(routes::chat))
         .route("/conversations", get(routes::list_conversations))
@@ -78,7 +72,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/sessions", get(routes::list_cli_sessions))
         .route("/sessions/{id}", delete(routes::kill_cli_session))
         .route("/files/{name}", get(routes::read_file).put(routes::write_file))
-        .layer(middleware::from_fn(auth_middleware))
+        .layer(middleware::from_fn(move |req, next| {
+            let t = token.clone();
+            auth_check(t, req, next)
+        }))
         .layer(CorsLayer::new()
             .allow_origin(["tauri://localhost".parse().unwrap(), "http://localhost:5173".parse().unwrap()])
             .allow_methods(Any)
@@ -108,6 +105,6 @@ pub async fn serve(state: AppState, port: u16) -> std::result::Result<(), Box<dy
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
     tracing::info!("Homard daemon listening on 127.0.0.1:{}", port);
-    axum::serve(listener, create_router(state)).await?;
+    axum::serve(listener, create_router(state, token)).await?;
     Ok(())
 }

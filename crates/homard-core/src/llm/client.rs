@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use crate::types::*;
+use crate::config::HomardConfig;
 use crate::error::{HomardError, Result};
 use super::openai::OpenAiProvider;
 use super::anthropic::AnthropicProvider;
@@ -14,14 +15,12 @@ pub struct LlmResponse {
 pub struct LlmClient {
     http: reqwest::Client,
     oauth: Arc<OAuthManager>,
-    provider_configs: tokio::sync::RwLock<std::collections::HashMap<String, ProviderConfig>>,
-    active_provider: tokio::sync::RwLock<String>,
+    shared_config: Arc<tokio::sync::RwLock<HomardConfig>>,
 }
 
 impl LlmClient {
     pub fn new(
-        provider_configs: std::collections::HashMap<String, ProviderConfig>,
-        active_provider: String,
+        shared_config: Arc<tokio::sync::RwLock<HomardConfig>>,
         oauth: Arc<OAuthManager>,
     ) -> Self {
         let http = reqwest::Client::builder()
@@ -33,52 +32,40 @@ impl LlmClient {
         Self {
             http,
             oauth,
-            provider_configs: tokio::sync::RwLock::new(provider_configs),
-            active_provider: tokio::sync::RwLock::new(active_provider),
+            shared_config,
         }
     }
 
-    /// Reload provider configs and active provider from disk
-    pub async fn reload_config(&self) {
-        let dirs = crate::config::HomardDirs::default_path();
-        let fresh = crate::config::HomardConfig::load_or_default(&dirs.config_path());
-        *self.provider_configs.write().await = fresh.providers;
-        *self.active_provider.write().await = fresh.active_provider;
-    }
-
     pub async fn chat(&self, messages: &[ChatMessage], tools: &[ToolSchema]) -> Result<LlmResponse> {
-        // Always reload config to pick up provider switches immediately
-        self.reload_config().await;
-
-        let provider_name = self.active_provider.read().await.clone();
-        let configs = self.provider_configs.read().await;
-        let config = configs.get(&provider_name)
+        let config = self.shared_config.read().await;
+        let provider_name = config.active_provider.clone();
+        let provider_config = config.providers.get(&provider_name)
             .ok_or_else(|| HomardError::Llm(format!("Provider '{}' not configured. Sign in via Settings.", provider_name)))?
             .clone();
-        drop(configs);
+        drop(config); // Release lock before making LLM call
 
-        match config.kind {
-            // CLI backends — run codex/claude as subprocess (uses their own auth, bills to subscription)
+        match provider_config.kind {
+            // CLI backends -- run codex/claude as subprocess (uses their own auth, bills to subscription)
             ProviderKind::CodexCli => {
                 CliBackend::codex_chat(messages, tools).await
             }
             ProviderKind::ClaudeCli => {
                 CliBackend::claude_chat(messages, tools).await
             }
-            // Direct API backends — use HTTP with our own auth
+            // Direct API backends -- use HTTP with our own auth
             ProviderKind::Openai | ProviderKind::Openrouter => {
-                let token = self.get_token(&provider_name, &config).await?;
-                let base_url = config.base_url.as_deref().unwrap_or(match config.kind {
+                let token = self.get_token(&provider_name, &provider_config).await?;
+                let base_url = provider_config.base_url.as_deref().unwrap_or(match provider_config.kind {
                     ProviderKind::Openai => "https://api.openai.com/v1",
                     ProviderKind::Openrouter => "https://openrouter.ai/api/v1",
                     _ => unreachable!(),
                 });
-                OpenAiProvider::chat(&self.http, base_url, &token, &config.model, messages, tools).await
+                OpenAiProvider::chat(&self.http, base_url, &token, &provider_config.model, messages, tools).await
             }
             ProviderKind::Anthropic => {
-                let token = self.get_token(&provider_name, &config).await?;
-                let base_url = config.base_url.as_deref().unwrap_or("https://api.anthropic.com/v1");
-                AnthropicProvider::chat(&self.http, base_url, &token, &config.model, messages, tools).await
+                let token = self.get_token(&provider_name, &provider_config).await?;
+                let base_url = provider_config.base_url.as_deref().unwrap_or("https://api.anthropic.com/v1");
+                AnthropicProvider::chat(&self.http, base_url, &token, &provider_config.model, messages, tools).await
             }
         }
     }
@@ -111,6 +98,7 @@ impl LlmClient {
     }
 
     pub async fn set_active_provider(&self, provider: String) {
-        *self.active_provider.write().await = provider;
+        let mut config = self.shared_config.write().await;
+        config.active_provider = provider;
     }
 }
