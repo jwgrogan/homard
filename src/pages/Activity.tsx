@@ -3,21 +3,16 @@ import { getActivity, getSessions, getCronHealth, killSession, type AgentRun, ty
 
 function StatusDot({ status }: { status: string }) {
   const color =
-    status === "running" ? "var(--coral)" :
+    status === "running" ? "var(--accent)" :
     status === "complete" ? "var(--success)" :
     status === "error" ? "var(--error)" :
-    "var(--navy-muted)";
+    "var(--ink-soft)";
 
-  return (
-    <span
-      className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${status === "running" ? "animate-pulse" : ""}`}
-      style={{ background: color }}
-    />
-  );
+  return <span className={`inline-block h-2 w-2 rounded-full ${status === "running" ? "animate-pulse" : ""}`} style={{ background: color }} />;
 }
 
 function formatDuration(ms?: number): string {
-  if (!ms) return "\u2014";
+  if (!ms) return "—";
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
@@ -28,30 +23,23 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-function CronBar({ entries }: { entries: CronHealthEntry[] }) {
+function CronStrip({ entries }: { entries: CronHealthEntry[] }) {
+  if (entries.length === 0) return null;
+
   return (
-    <div
-      className="flex items-center gap-3 px-4 py-1.5"
-      style={{ borderBottom: "0.5px solid var(--border)", background: "rgba(232, 240, 236, 0.3)" }}
-    >
-      {entries.map(entry => {
+    <div className="flex flex-wrap gap-2 px-4 pt-3">
+      {entries.map((entry) => {
         const rate = entry.total_runs > 0 ? Math.round((entry.successes / entry.total_runs) * 100) : 0;
+        const color =
+          rate >= 90 ? { bg: "var(--success-bg)", text: "var(--success)" } :
+          rate >= 50 ? { bg: "var(--warning-bg)", text: "var(--warning)" } :
+          { bg: "var(--error-bg)", text: "var(--error)" };
+
         return (
-          <div key={entry.name} className="flex items-center gap-1.5">
-            <span className="text-[11px] font-medium" style={{ color: "var(--navy)" }}>{entry.name}</span>
-            <span
-              className="text-[10px] font-medium px-1 py-px rounded"
-              style={{
-                background: rate >= 90 ? "var(--success-bg)" : rate >= 50 ? "var(--warning-bg)" : "var(--error-bg)",
-                color: rate >= 90 ? "var(--success)" : rate >= 50 ? "var(--warning)" : "var(--error)",
-              }}
-            >
-              {rate}%
-            </span>
-            <span className="text-[10px]" style={{ color: "var(--navy-muted)" }}>
-              {entry.total_runs} runs
-            </span>
-          </div>
+          <span key={entry.name} className="pill" style={{ background: color.bg, color: color.text, borderColor: "transparent" }}>
+            <span>{entry.name}</span>
+            <span>{rate}%</span>
+          </span>
         );
       })}
     </div>
@@ -62,7 +50,6 @@ export default function Activity() {
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [sessions, setSessions] = useState<CliSession[]>([]);
   const [cronHealth, setCronHealth] = useState<CronHealthEntry[]>([]);
-  const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
     getActivity().then(setRuns);
@@ -76,97 +63,67 @@ export default function Activity() {
     return () => clearInterval(interval);
   }, []);
 
-  const runningSessions = sessions.filter(s => s.status === "running");
-
-  // Merge sessions and runs into a single flat list
-  const allItems: Array<{ type: "session"; data: CliSession } | { type: "run"; data: AgentRun }> = [
-    ...runningSessions.map(s => ({ type: "session" as const, data: s })),
-    ...runs.map(r => ({ type: "run" as const, data: r })),
+  const runningSessions = sessions.filter((s) => s.status === "running");
+  const items: Array<{ type: "session"; data: CliSession } | { type: "run"; data: AgentRun }> = [
+    ...runningSessions.map((s) => ({ type: "session" as const, data: s })),
+    ...runs.map((r) => ({ type: "run" as const, data: r })),
   ];
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Cron health bar */}
-      {cronHealth.length > 0 && <CronBar entries={cronHealth} />}
+    <div className="panel h-full">
+      <div className="panel-header">
+        <div>
+          <div className="subtle-label">Activity</div>
+          <h2 className="section-title">Runs and sessions</h2>
+          <p className="section-meta">A compact ledger of what Homard is doing now and what just happened.</p>
+        </div>
+        <span className="pill">
+          <span>{items.length}</span>
+          <span>active or recent</span>
+        </span>
+      </div>
 
-      {/* Flat list */}
-      <div className="flex-1 overflow-y-auto">
-        {allItems.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-[13px]" style={{ color: "var(--navy-muted)" }}>No activity yet</p>
+      <CronStrip entries={cronHealth} />
+
+      <div className="row-list flex-1 overflow-y-auto">
+        {items.length === 0 ? (
+          <div className="empty-state">
+            <p>No activity yet.</p>
           </div>
         ) : (
-          allItems.map(item => {
+          items.map((item) => {
             if (item.type === "session") {
               const session = item.data;
               return (
-                <div
-                  key={`session-${session.id}`}
-                  className="flex items-center gap-2 px-4 py-2"
-                  style={{ borderBottom: "0.5px solid var(--border)" }}
-                >
+                <div key={`session-${session.id}`} className="row-item grid-cols-[auto_minmax(0,1fr)_auto]">
                   <StatusDot status={session.status} />
-                  <span
-                    className="text-[10px] font-medium px-1 py-px rounded shrink-0"
-                    style={{ background: "var(--sage)", color: "var(--navy)" }}
-                  >
-                    {session.cli}
-                  </span>
-                  <span className="text-[13px] flex-1 truncate" style={{ color: "var(--navy)" }}>
-                    {session.prompt.length > 50 ? session.prompt.slice(0, 50) + "..." : session.prompt}
-                  </span>
-                  <span className="text-[11px] shrink-0" style={{ color: "var(--navy-muted)" }}>
-                    {session.directory.split("/").pop()}
-                  </span>
-                  {session.status === "running" && (
-                    <button
-                      onClick={() => killSession(session.id)}
-                      className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0"
-                      style={{ background: "var(--coral)", color: "white" }}
-                    >
-                      Kill
-                    </button>
-                  )}
+                  <div className="min-w-0">
+                    <div className="truncate text-[13px] font-medium">{session.prompt}</div>
+                    <div className="truncate text-[11px]" style={{ color: "var(--ink-soft)" }}>
+                      {String(session.cli).toUpperCase()} · {session.directory}
+                    </div>
+                  </div>
+                  <button onClick={() => killSession(session.id)} className="danger-cta">
+                    Kill
+                  </button>
                 </div>
               );
             }
 
             const run = item.data;
             return (
-              <button
-                key={`run-${run.id}`}
-                onClick={() => setExpanded(expanded === run.id ? null : run.id)}
-                className="w-full text-left"
-              >
-                <div
-                  className="flex items-center gap-2 px-4 py-2"
-                  style={{ borderBottom: "0.5px solid var(--border)" }}
-                >
-                  <StatusDot status={run.status} />
-                  <span className="text-[13px] font-medium flex-1 truncate" style={{ color: "var(--navy)" }}>
-                    {run.channel}
-                  </span>
-                  <span className="text-[11px] shrink-0" style={{ color: "var(--navy-muted)" }}>
-                    {formatDuration(run.duration_ms)}
-                  </span>
-                  <span className="text-[11px] shrink-0" style={{ color: "var(--navy-muted)" }}>
-                    {formatTime(run.started_at)}
-                  </span>
-                </div>
-                {expanded === run.id && (
-                  <div
-                    className="px-4 py-1.5 text-[11px]"
-                    style={{ borderBottom: "0.5px solid var(--border)", background: "rgba(232, 240, 236, 0.25)", color: "var(--navy-muted)" }}
-                  >
-                    <span>Trigger: {run.trigger}</span>
-                    <span className="mx-2">|</span>
-                    <span>Iterations: {run.iterations}</span>
-                    {run.error_message && (
-                      <span style={{ color: "var(--error)" }}> | Error: {run.error_message}</span>
-                    )}
+              <div key={`run-${run.id}`} className="row-item grid-cols-[auto_minmax(0,1fr)_auto]">
+                <StatusDot status={run.status} />
+                <div className="min-w-0">
+                  <div className="truncate text-[13px] font-medium">{run.channel}</div>
+                  <div className="truncate text-[11px]" style={{ color: "var(--ink-soft)" }}>
+                    {run.trigger} · {formatDuration(run.duration_ms)} · {run.error_message ? run.error_message : `${run.iterations} iterations`}
                   </div>
-                )}
-              </button>
+                </div>
+                <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>
+                  {formatTime(run.started_at)}
+                </div>
+              </div>
             );
           })
         )}
