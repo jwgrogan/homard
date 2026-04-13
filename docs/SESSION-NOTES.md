@@ -7,7 +7,7 @@
 
 ## What Was Built
 
-Homard — a lightweight macOS personal AI assistant. Complete rewrite from arcctl (a Claude Code CLI wrapper) into an autonomous agent platform.
+Homard — a lightweight macOS personal AI assistant. Complete rewrite from homard (a Claude Code CLI wrapper) into an autonomous agent platform.
 
 ### Architecture
 - **Daemon** (`homard serve`): Rust, axum REST API on localhost:17700, codex app-server for sub-second chat, Telegram poller, cron scheduler

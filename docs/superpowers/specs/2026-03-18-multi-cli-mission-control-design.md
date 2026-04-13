@@ -1,19 +1,19 @@
-# arcctl Multi-CLI Mission Control Redesign
+# homard Multi-CLI Mission Control Redesign
 
 **Date:** 2026-03-18
 **Status:** Draft
 
 ## Overview
 
-arcctl evolves from a Claude Code-only menu bar app into a multi-CLI mission control dashboard. It launches terminal sessions across providers (Claude Code, Gemini CLI, extensible), monitors agent activity via session file tailing, manages profiles and MCP servers as a unified layer, and gives users a bird's eye view across all their AI coding sessions.
+homard evolves from a Claude Code-only menu bar app into a multi-CLI mission control dashboard. It launches terminal sessions across providers (Claude Code, Gemini CLI, extensible), monitors agent activity via session file tailing, manages profiles and MCP servers as a unified layer, and gives users a bird's eye view across all their AI coding sessions.
 
-arcctl is not a terminal emulator. Users interact with CLIs in real terminal windows. arcctl's value is orchestration, visibility, and the cross-session view no single terminal can provide.
+homard is not a terminal emulator. Users interact with CLIs in real terminal windows. homard's value is orchestration, visibility, and the cross-session view no single terminal can provide.
 
 ## Architecture
 
-**Approach: Log Tailer.** arcctl never interferes with CLI processes. It reads session files written by each CLI, tracks metadata in SQLite, and opens real terminal windows. Agent team tree depth varies by provider — graceful degradation when parsing is unavailable.
+**Approach: Log Tailer.** homard never interferes with CLI processes. It reads session files written by each CLI, tracks metadata in SQLite, and opens real terminal windows. Agent team tree depth varies by provider — graceful degradation when parsing is unavailable.
 
-**Key principle:** Each CLI works exactly as its developers intended. arcctl adds the layer above.
+**Key principle:** Each CLI works exactly as its developers intended. homard adds the layer above.
 
 ### Migration from Current Architecture
 
@@ -21,13 +21,13 @@ The existing codebase has `Run` (types.rs) and `ProcessRegistry` (process.rs) fo
 
 **Migration path:**
 - `Run` is replaced by `Session`. The `runs` table is migrated to a `sessions` table via SQLite `ALTER TABLE` + data migration on first launch of the new version.
-- `ProcessRegistry` is replaced by `SessionMonitor`. The registry tracked in-memory PIDs of child processes arcctl owned — the new model tracks PIDs of terminal windows arcctl launched but does not own.
+- `ProcessRegistry` is replaced by `SessionMonitor`. The registry tracked in-memory PIDs of child processes homard owned — the new model tracks PIDs of terminal windows homard launched but does not own.
 - `chat_sessions` table is dropped (it was used for headless streaming, which is no longer the interaction model).
 - Existing `Run` history is preserved in the migrated `sessions` table with `provider: "claude"` backfilled and `cli_session_id: null` (we didn't capture it before).
 
 ### Scope Boundaries
 
-- **Phase 1 only monitors sessions spawned by arcctl.** Discovery of externally-started sessions (user typing `claude` directly in a terminal) is out of scope. It could be added later by scanning CLI session directories for untracked session files.
+- **Phase 1 only monitors sessions spawned by homard.** Discovery of externally-started sessions (user typing `claude` directly in a terminal) is out of scope. It could be added later by scanning CLI session directories for untracked session files.
 
 ---
 
@@ -44,7 +44,7 @@ Profile {
   name: String,           // "Work Claude", "Personal Gemini"
   provider: Provider,     // Claude | Gemini | (extensible enum)
   email: String,          // account identifier
-  credential_dir: Path,   // ~/.arcctl/profiles/<name>/
+  credential_dir: Path,   // ~/.homard/profiles/<name>/
   created_at: DateTime,
 }
 ```
@@ -85,11 +85,11 @@ This is a known gap for Gemini — Phase 1 implementation should investigate and
 
 ### 1.2 Project-Directory Defaults
 
-Stored in `~/.arcctl/project-defaults.json`:
+Stored in `~/.homard/project-defaults.json`:
 
 ```json
 {
-  "/Users/jwgrogan/GitHub/arcctl": "Work Claude",
+  "/Users/jwgrogan/GitHub/homard": "Work Claude",
   "/Users/jwgrogan/GitHub/other-repo": "Personal Gemini"
 }
 ```
@@ -124,12 +124,12 @@ On app launch and every 5 minutes, validate credentials per profile:
 
 ### 1.5 Remove claude-switch
 
-`claude-switch` (installed at `/usr/local/bin/claude-switch` via Homebrew) is replaced by arcctl's profile manager.
+`claude-switch` (installed at `/usr/local/bin/claude-switch` via Homebrew) is replaced by homard's profile manager.
 
 - On first launch, detect if `claude-switch` is installed
 - Offer to auto-import any profiles it created
 - Suggest `brew uninstall claude-switch`
-- arcctl's profile manager handles all credential switching going forward
+- homard's profile manager handles all credential switching going forward
 
 ### 1.6 Session Spawning
 
@@ -141,11 +141,11 @@ On app launch and every 5 minutes, validate credentials per profile:
    - **Profile selector** — pre-filled from project default, dropdown to override
    - **Optional: initial prompt** — passed as `-p` or positional arg
    - **Optional: agent** — select from available agents for the chosen CLI
-3. arcctl opens a real terminal window:
+3. homard opens a real terminal window:
    - Detect installed terminal: iTerm, Warp, Ghostty, Kitty, Terminal.app (configurable in settings)
    - Command: `cd <dir> && claude` or `cd <dir> && gemini` (with flags as appropriate)
    - If initial prompt: append to command
-4. arcctl records the session in SQLite
+4. homard records the session in SQLite
 5. Session appears in the session list immediately
 
 **Terminal launch mechanism:**
@@ -154,7 +154,7 @@ On app launch and every 5 minutes, validate credentials per profile:
 - **Warp:** `open -a Warp <dir>` then run command (Warp supports URL schemes and CLI launch)
 - **Ghostty/Kitty:** Direct CLI — `ghostty -e "cd <dir> && <cmd>"` / `kitty sh -c "cd <dir> && <cmd>"`
 - **Fallback:** If preferred terminal not found, fall back to Terminal.app
-- **Setting:** `~/.arcctl/config.json` → `"terminal": "iterm"` (auto-detected on first launch, user can change in settings)
+- **Setting:** `~/.homard/config.json` → `"terminal": "iterm"` (auto-detected on first launch, user can change in settings)
 
 **Session status detection:**
 - Poll `terminal_pid` liveness every 5 seconds via `kill(pid, 0)` (signal 0 checks existence without sending a signal)
@@ -162,14 +162,14 @@ On app launch and every 5 minutes, validate credentials per profile:
 - If `terminal_pid` is `None` (failed to capture): check if the CLI's session file has stopped updating for >60 seconds as a secondary signal
 
 **Capturing CLI session ID:**
-- **Claude:** Pass `--session-id <uuid>` when spawning — arcctl generates the ID, always knows it
+- **Claude:** Pass `--session-id <uuid>` when spawning — homard generates the ID, always knows it
 - **Gemini:** Start a file watcher (`notify` crate) on `~/.gemini/tmp/*/chats/` *before* spawning the terminal. The first new `session-*.json` file that appears after spawn is matched to the session. Session ID is extracted from the filename (`session-<timestamp>-<id>.json`). If multiple files appear simultaneously (unlikely but possible), match by closest timestamp to spawn time. Fallback: if no session file is detected within 30 seconds, the session is tracked without a `cli_session_id` (resume will be unavailable for that session).
 
 **Session data model (SQLite):**
 
 ```
 Session {
-  id: UUID,                    // arcctl's session ID
+  id: UUID,                    // homard's session ID
   cli_session_id: String?,     // the CLI's own session ID (for resume)
   profile_name: String,
   provider: String,            // "claude" | "gemini"
@@ -191,9 +191,9 @@ Session {
 
 ### 1.7 Unified Local MCP Management
 
-arcctl maintains a single source of truth for local MCP servers, synced to each CLI.
+homard maintains a single source of truth for local MCP servers, synced to each CLI.
 
-**Source of truth:** `~/.arcctl/mcp-servers.json`
+**Source of truth:** `~/.homard/mcp-servers.json`
 
 ```json
 {
@@ -215,12 +215,12 @@ arcctl maintains a single source of truth for local MCP servers, synced to each 
 - Future CLIs: add a sync adapter per provider
 
 **Sync behavior:**
-- Sync on change (when user adds/removes/edits in arcctl) and on app launch (reconcile)
-- arcctl is the authority for local MCPs
-- If external drift detected: prompt "MCP config for [CLI] was modified externally. Adopt changes or overwrite?" — "Adopt" imports external changes into arcctl's config, then syncs outward to all providers. "Overwrite" pushes arcctl's config to the CLI. Unknown keys in provider configs are preserved during sync (only arcctl-managed server entries are touched).
+- Sync on change (when user adds/removes/edits in homard) and on app launch (reconcile)
+- homard is the authority for local MCPs
+- If external drift detected: prompt "MCP config for [CLI] was modified externally. Adopt changes or overwrite?" — "Adopt" imports external changes into homard's config, then syncs outward to all providers. "Overwrite" pushes homard's config to the CLI. Unknown keys in provider configs are preserved during sync (only homard-managed server entries are touched).
 
 **MCP settings panel:**
-1. **Local MCP Servers** (managed by arcctl) — add/edit/remove, shows sync status per provider
+1. **Local MCP Servers** (managed by homard) — add/edit/remove, shows sync status per provider
 2. **Cloud-Connected Services** (read-only, per CLI) — informational display of what's connected via Claude.ai, Gemini extensions, etc.
 
 ### 1.8 Quick Fixes
@@ -240,7 +240,7 @@ arcctl maintains a single source of truth for local MCP servers, synced to each 
 
 **MCP visibility:**
 - Display `enabledMcpjsonServers` (already in struct, not shown)
-- Show three sections: local (arcctl-managed), plugins (`enabledPlugins`), cloud services (`enabledMcpjsonServers` + permission-pattern extraction as fallback)
+- Show three sections: local (homard-managed), plugins (`enabledPlugins`), cloud services (`enabledMcpjsonServers` + permission-pattern extraction as fallback)
 
 ---
 
@@ -253,7 +253,7 @@ The core value-add: a tree view of what agents are doing within a session.
 **Tree structure:**
 
 ```
-Session: "arcctl" (Claude, ~/GitHub/arcctl)
+Session: "homard" (Claude, ~/GitHub/homard)
 ├─ Main Agent (working)
 │  ├─ current: "Editing src/pages/Sessions.tsx"
 │  └─ files: [Sessions.tsx, store.ts]
@@ -321,7 +321,7 @@ Clicking a session in the list opens a detail panel:
 2. Click opens a new terminal window with the resume command:
    - Claude: `cd <dir> && claude --resume <session-id>`
    - Gemini: `cd <dir> && gemini --resume <session-id>`
-3. arcctl creates a new Session record with `parent_session_id` pointing to the original, same `cli_session_id`
+3. homard creates a new Session record with `parent_session_id` pointing to the original, same `cli_session_id`
 4. Agent tree monitor picks up the resumed session automatically
 
 ### 3.2 Session Fork
@@ -339,7 +339,7 @@ Below running sessions, a searchable/filterable history:
 - Click to see agent tree snapshot (read from stored session file if still available)
 - Scoped to project directory by default, toggle to show all
 
-**Data retention:** arcctl stores metadata only (SQLite). The CLI owns conversation data. If a CLI's session file is cleaned up, arcctl shows "Session data unavailable" for the tree view.
+**Data retention:** homard stores metadata only (SQLite). The CLI owns conversation data. If a CLI's session file is cleaned up, homard shows "Session data unavailable" for the tree view.
 
 ### 3.4 Dock/Tray Hybrid
 
@@ -354,8 +354,8 @@ Below running sessions, a searchable/filterable history:
 ## Files Affected
 
 ### New Files
-- `~/.arcctl/mcp-servers.json` — unified MCP config
-- `~/.arcctl/project-defaults.json` — directory → profile mapping
+- `~/.homard/mcp-servers.json` — unified MCP config
+- `~/.homard/project-defaults.json` — directory → profile mapping
 - `src-tauri/src/commands/mcp_sync.rs` — MCP sync logic per provider
 - `src-tauri/src/session_monitor.rs` — file watcher + parser for agent tree
 - `src-tauri/src/providers/mod.rs` — provider abstraction
@@ -365,13 +365,13 @@ Below running sessions, a searchable/filterable history:
 - `src/components/AgentTree.tsx` — tree visualization component
 - `src/components/SessionDetail.tsx` — session detail panel
 - `src-tauri/icons/tray-icon.png` — 22x22 menu bar icon
-- `crates/arcctl-core/src/provider.rs` — provider types and traits
+- `crates/homard-core/src/provider.rs` — provider types and traits
 
 ### Modified Files
-- `crates/arcctl-core/src/profile.rs` — add `provider` field, project defaults
-- `crates/arcctl-core/src/settings.rs` — fix bypass permissions (`defaultMode`), MCP visibility
-- `crates/arcctl-core/src/types.rs` — Session struct updates, Provider enum
-- `crates/arcctl-core/src/store.rs` — session table schema updates
+- `crates/homard-core/src/profile.rs` — add `provider` field, project defaults
+- `crates/homard-core/src/settings.rs` — fix bypass permissions (`defaultMode`), MCP visibility
+- `crates/homard-core/src/types.rs` — Session struct updates, Provider enum
+- `crates/homard-core/src/store.rs` — session table schema updates
 - `src-tauri/src/tray.rs` — add `.icon()` call
 - `src-tauri/src/lib.rs` — register new commands, session monitor setup
 - `src-tauri/src/commands/profile.rs` — provider-aware profile operations

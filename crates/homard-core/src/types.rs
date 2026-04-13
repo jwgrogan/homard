@@ -95,7 +95,7 @@ pub struct ToolSchema {
     pub parameters: serde_json::Value,
 }
 
-// Schedule type kept from arcctl but simplified
+// Schedule type kept from homard but simplified
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Schedule {
     pub id: String,

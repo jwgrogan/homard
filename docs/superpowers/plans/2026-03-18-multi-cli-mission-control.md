@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Transform arcctl from a Claude-only menu bar app into a multi-CLI mission control that spawns terminal sessions, monitors agent teams, manages profiles across providers, and unifies MCP configuration.
+**Goal:** Transform homard from a Claude-only menu bar app into a multi-CLI mission control that spawns terminal sessions, monitors agent teams, manages profiles across providers, and unifies MCP configuration.
 
-**Architecture:** Log Tailer approach — arcctl reads CLI session files (Claude JSONL, Gemini JSON) via file watchers, tracks metadata in SQLite, and opens real terminal windows. No terminal emulation. Provider abstraction via Rust traits/enums enables extensibility.
+**Architecture:** Log Tailer approach — homard reads CLI session files (Claude JSONL, Gemini JSON) via file watchers, tracks metadata in SQLite, and opens real terminal windows. No terminal emulation. Provider abstraction via Rust traits/enums enables extensibility.
 
 **Tech Stack:** Rust (Tauri 2, rusqlite, notify, tokio), React 18 + TypeScript + Zustand + Tailwind CSS 4
 
@@ -15,30 +15,30 @@
 ## File Structure
 
 ### New Files (Phase 1)
-- `crates/arcctl-core/src/provider.rs` — Provider enum, ProviderConfig, credential trait
-- `crates/arcctl-core/src/terminal.rs` — Terminal app detection and launch
-- `crates/arcctl-core/src/mcp_sync.rs` — Unified MCP sync logic
-- `crates/arcctl-core/src/project_defaults.rs` — Directory → profile mapping
+- `crates/homard-core/src/provider.rs` — Provider enum, ProviderConfig, credential trait
+- `crates/homard-core/src/terminal.rs` — Terminal app detection and launch
+- `crates/homard-core/src/mcp_sync.rs` — Unified MCP sync logic
+- `crates/homard-core/src/project_defaults.rs` — Directory → profile mapping
 - `src-tauri/src/commands/mcp_sync.rs` — Tauri commands for MCP sync
 - `src-tauri/icons/tray-icon.png` — 22x22 monochrome menu bar icon
 - `src/components/ProfileSwitcher.tsx` — Bottom-left dropdown with usage
 - `src/components/NewSessionModal.tsx` — Session spawning form
 
 ### New Files (Phase 2)
-- `crates/arcctl-core/src/session_monitor.rs` — File watcher + agent tree extraction
-- `crates/arcctl-core/src/parsers/mod.rs` — Parser trait
-- `crates/arcctl-core/src/parsers/claude.rs` — Claude JSONL session parser
-- `crates/arcctl-core/src/parsers/gemini.rs` — Gemini JSON session parser
+- `crates/homard-core/src/session_monitor.rs` — File watcher + agent tree extraction
+- `crates/homard-core/src/parsers/mod.rs` — Parser trait
+- `crates/homard-core/src/parsers/claude.rs` — Claude JSONL session parser
+- `crates/homard-core/src/parsers/gemini.rs` — Gemini JSON session parser
 - `src/components/AgentTree.tsx` — Tree visualization component
 - `src/components/SessionDetail.tsx` — Session detail panel with tree
 
 ### Modified Files
-- `crates/arcctl-core/Cargo.toml` — Add `notify` crate
-- `crates/arcctl-core/src/types.rs` — Session struct, Provider enum, SessionStatus
-- `crates/arcctl-core/src/profile.rs` — Add provider field, credential trait
-- `crates/arcctl-core/src/store.rs` — Migrate runs→sessions table, new queries
-- `crates/arcctl-core/src/settings.rs` — Fix bypass permissions (defaultMode)
-- `crates/arcctl-core/src/process.rs` — Terminal spawning replaces headless
+- `crates/homard-core/Cargo.toml` — Add `notify` crate
+- `crates/homard-core/src/types.rs` — Session struct, Provider enum, SessionStatus
+- `crates/homard-core/src/profile.rs` — Add provider field, credential trait
+- `crates/homard-core/src/store.rs` — Migrate runs→sessions table, new queries
+- `crates/homard-core/src/settings.rs` — Fix bypass permissions (defaultMode)
+- `crates/homard-core/src/process.rs` — Terminal spawning replaces headless
 - `src-tauri/src/tray.rs` — Add icon
 - `src-tauri/src/state.rs` — Replace ProcessRegistry with session tracking
 - `src-tauri/src/lib.rs` — Register new commands, session monitor setup
@@ -80,10 +80,10 @@ In `src-tauri/src/tray.rs`, add the icon to the builder:
 use tauri::image::Image;
 
 pub fn create_tray(app: &App) -> tauri::Result<()> {
-    let open = MenuItemBuilder::new("Open arcctl")
+    let open = MenuItemBuilder::new("Open homard")
         .id("open")
         .build(app)?;
-    let quit = MenuItemBuilder::new("Quit arcctl")
+    let quit = MenuItemBuilder::new("Quit homard")
         .id("quit")
         .build(app)?;
 
@@ -94,7 +94,7 @@ pub fn create_tray(app: &App) -> tauri::Result<()> {
     TrayIconBuilder::new()
         .icon(icon)
         .icon_as_template(true)
-        .tooltip("arcctl")
+        .tooltip("homard")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "quit" => {
@@ -117,7 +117,7 @@ pub fn create_tray(app: &App) -> tauri::Result<()> {
 - [ ] **Step 3: Build and verify tray icon appears**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo build 2>&1 | tail -5
+cd /Users/jwgrogan/GitHub/homard && cargo build 2>&1 | tail -5
 ```
 
 - [ ] **Step 4: Commit**
@@ -132,7 +132,7 @@ git commit -m "fix: add tray icon to menu bar"
 ### Task 2: Fix Bypass Permissions (defaultMode)
 
 **Files:**
-- Modify: `crates/arcctl-core/src/settings.rs`
+- Modify: `crates/homard-core/src/settings.rs`
 - Modify: `src-tauri/src/commands/settings.rs`
 - Modify: `src/lib/types.ts`
 - Modify: `src/components/settings/PermissionsPanel.tsx`
@@ -141,7 +141,7 @@ git commit -m "fix: add tray icon to menu bar"
 
 - [ ] **Step 1: Write failing test for defaultMode serialization**
 
-In `crates/arcctl-core/src/settings.rs`, add test:
+In `crates/homard-core/src/settings.rs`, add test:
 
 ```rust
 #[test]
@@ -179,14 +179,14 @@ fn test_default_mode_none_omitted() {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo test -p arcctl-core test_default_mode 2>&1 | tail -10
+cd /Users/jwgrogan/GitHub/homard && cargo test -p homard-core test_default_mode 2>&1 | tail -10
 ```
 
 Expected: FAIL — `set_default_mode` and `default_mode` field don't exist yet.
 
 - [ ] **Step 3: Implement defaultMode in settings.rs**
 
-In `crates/arcctl-core/src/settings.rs`:
+In `crates/homard-core/src/settings.rs`:
 
 1. Add `default_mode` field to `ClaudeSettings`:
 
@@ -230,7 +230,7 @@ pub fn set_default_mode(&mut self, mode: Option<String>) {
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo test -p arcctl-core 2>&1 | tail -10
+cd /Users/jwgrogan/GitHub/homard && cargo test -p homard-core 2>&1 | tail -10
 ```
 
 - [ ] **Step 5: Update Tauri command**
@@ -316,7 +316,7 @@ Update the conditional rendering to check `settings?.defaultMode === "bypassPerm
 - [ ] **Step 8: Build frontend and verify**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && npm run build 2>&1 | tail -5
+cd /Users/jwgrogan/GitHub/homard && npm run build 2>&1 | tail -5
 ```
 
 - [ ] **Step 9: Commit**
@@ -331,12 +331,12 @@ git commit -m "fix: use top-level defaultMode instead of nested bypassPermission
 ### Task 3: Provider Types and Enum
 
 **Files:**
-- Create: `crates/arcctl-core/src/provider.rs`
-- Modify: `crates/arcctl-core/src/lib.rs` (add `pub mod provider;`)
+- Create: `crates/homard-core/src/provider.rs`
+- Modify: `crates/homard-core/src/lib.rs` (add `pub mod provider;`)
 
 - [ ] **Step 1: Write test for Provider**
 
-Create `crates/arcctl-core/src/provider.rs`:
+Create `crates/homard-core/src/provider.rs`:
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -437,23 +437,23 @@ mod tests {
 
 - [ ] **Step 2: Add `which` crate and module declaration**
 
-In `crates/arcctl-core/Cargo.toml`, add:
+In `crates/homard-core/Cargo.toml`, add:
 ```toml
 which = "7"
 ```
 
-In `crates/arcctl-core/src/lib.rs`, add `pub mod provider;`
+In `crates/homard-core/src/lib.rs`, add `pub mod provider;`
 
 - [ ] **Step 3: Run tests**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo test -p arcctl-core provider 2>&1 | tail -10
+cd /Users/jwgrogan/GitHub/homard && cargo test -p homard-core provider 2>&1 | tail -10
 ```
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/arcctl-core/src/provider.rs crates/arcctl-core/src/lib.rs crates/arcctl-core/Cargo.toml
+git add crates/homard-core/src/provider.rs crates/homard-core/src/lib.rs crates/homard-core/Cargo.toml
 git commit -m "feat: add Provider enum with CLI metadata"
 ```
 
@@ -462,13 +462,13 @@ git commit -m "feat: add Provider enum with CLI metadata"
 ### Task 4: Update Profile Model with Provider
 
 **Files:**
-- Modify: `crates/arcctl-core/src/types.rs`
-- Modify: `crates/arcctl-core/src/profile.rs`
+- Modify: `crates/homard-core/src/types.rs`
+- Modify: `crates/homard-core/src/profile.rs`
 - Modify: `src-tauri/src/commands/profile.rs`
 
 - [ ] **Step 1: Write test for provider-aware Profile**
 
-In `crates/arcctl-core/src/types.rs`, update Profile:
+In `crates/homard-core/src/types.rs`, update Profile:
 
 ```rust
 use crate::provider::ProviderId;
@@ -482,7 +482,7 @@ pub struct Profile {
 }
 ```
 
-In `crates/arcctl-core/src/profile.rs` tests, update `test_list_profiles`:
+In `crates/homard-core/src/profile.rs` tests, update `test_list_profiles`:
 
 ```rust
 #[test]
@@ -502,14 +502,14 @@ fn test_list_profiles_with_provider() {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo test -p arcctl-core test_list_profiles_with_provider 2>&1 | tail -10
+cd /Users/jwgrogan/GitHub/homard && cargo test -p homard-core test_list_profiles_with_provider 2>&1 | tail -10
 ```
 
 - [ ] **Step 3: Update ProfileManager to include provider**
 
 The current `ProfileManager` is Claude-only. For now, all imported profiles get `ProviderId::Claude`. We'll store a `provider.json` in each profile dir to persist the provider choice.
 
-In `crates/arcctl-core/src/profile.rs`:
+In `crates/homard-core/src/profile.rs`:
 
 1. Add import: `use crate::provider::ProviderId;`
 2. In `import()`, also write a `provider.json` file:
@@ -539,7 +539,7 @@ profiles.push(Profile {
 - [ ] **Step 4: Run all profile tests**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo test -p arcctl-core profile 2>&1 | tail -15
+cd /Users/jwgrogan/GitHub/homard && cargo test -p homard-core profile 2>&1 | tail -15
 ```
 
 Fix any compilation errors from the Profile struct change (add `provider: ProviderId::Claude` to test helpers).
@@ -562,7 +562,7 @@ export interface Profile {
 - [ ] **Step 6: Build to verify compilation**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo build 2>&1 | tail -5 && npm run build 2>&1 | tail -5
+cd /Users/jwgrogan/GitHub/homard && cargo build 2>&1 | tail -5 && npm run build 2>&1 | tail -5
 ```
 
 - [ ] **Step 7: Commit**
@@ -577,11 +577,11 @@ git commit -m "feat: add provider field to Profile model"
 ### Task 5: Terminal Launcher
 
 **Files:**
-- Create: `crates/arcctl-core/src/terminal.rs`
+- Create: `crates/homard-core/src/terminal.rs`
 
 - [ ] **Step 1: Write tests for terminal detection**
 
-Create `crates/arcctl-core/src/terminal.rs`:
+Create `crates/homard-core/src/terminal.rs`:
 
 ```rust
 use std::path::Path;
@@ -589,7 +589,7 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ArcctlError, Result};
+use crate::error::{HomardError, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -638,9 +638,9 @@ impl TerminalApp {
                     .arg("-e")
                     .arg(&script)
                     .output()
-                    .map_err(ArcctlError::Io)?;
+                    .map_err(HomardError::Io)?;
                 if !output.status.success() {
-                    return Err(ArcctlError::Terminal(
+                    return Err(HomardError::Terminal(
                         String::from_utf8_lossy(&output.stderr).to_string()
                     ));
                 }
@@ -658,9 +658,9 @@ impl TerminalApp {
                     .arg("-e")
                     .arg(&script)
                     .output()
-                    .map_err(ArcctlError::Io)?;
+                    .map_err(HomardError::Io)?;
                 if !output.status.success() {
-                    return Err(ArcctlError::Terminal(
+                    return Err(HomardError::Terminal(
                         String::from_utf8_lossy(&output.stderr).to_string()
                     ));
                 }
@@ -670,14 +670,14 @@ impl TerminalApp {
                 let child = Command::new("open")
                     .args(["-a", "Ghostty", "--args", "-e", shell_command])
                     .spawn()
-                    .map_err(ArcctlError::Io)?;
+                    .map_err(HomardError::Io)?;
                 Ok(child.id().map(|id| id))
             }
             TerminalApp::Kitty => {
                 let child = Command::new("open")
                     .args(["-a", "kitty", "--args", "sh", "-c", shell_command])
                     .spawn()
-                    .map_err(ArcctlError::Io)?;
+                    .map_err(HomardError::Io)?;
                 Ok(child.id().map(|id| id))
             }
             TerminalApp::Warp => {
@@ -686,7 +686,7 @@ impl TerminalApp {
                 let child = Command::new("open")
                     .args(["-a", "Warp"])
                     .spawn()
-                    .map_err(ArcctlError::Io)?;
+                    .map_err(HomardError::Io)?;
                 Ok(child.id().map(|id| id))
             }
         }
@@ -715,23 +715,23 @@ mod tests {
 
 - [ ] **Step 2: Add Terminal error variant and module**
 
-In `crates/arcctl-core/src/error.rs`, add:
+In `crates/homard-core/src/error.rs`, add:
 ```rust
 Terminal(String),
 ```
 
-In `crates/arcctl-core/src/lib.rs`, add `pub mod terminal;`
+In `crates/homard-core/src/lib.rs`, add `pub mod terminal;`
 
 - [ ] **Step 3: Run tests**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo test -p arcctl-core terminal 2>&1 | tail -10
+cd /Users/jwgrogan/GitHub/homard && cargo test -p homard-core terminal 2>&1 | tail -10
 ```
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/arcctl-core/src/terminal.rs crates/arcctl-core/src/lib.rs crates/arcctl-core/src/error.rs
+git add crates/homard-core/src/terminal.rs crates/homard-core/src/lib.rs crates/homard-core/src/error.rs
 git commit -m "feat: add terminal app detection and launcher"
 ```
 
@@ -740,7 +740,7 @@ git commit -m "feat: add terminal app detection and launcher"
 ### Task 6: Project Directory Defaults
 
 **Files:**
-- Create: `crates/arcctl-core/src/project_defaults.rs`
+- Create: `crates/homard-core/src/project_defaults.rs`
 
 - [ ] **Step 1: Write tests**
 
@@ -824,18 +824,18 @@ mod tests {
 
 - [ ] **Step 2: Add module declaration**
 
-In `crates/arcctl-core/src/lib.rs`, add `pub mod project_defaults;`
+In `crates/homard-core/src/lib.rs`, add `pub mod project_defaults;`
 
 - [ ] **Step 3: Run tests**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo test -p arcctl-core project_defaults 2>&1 | tail -10
+cd /Users/jwgrogan/GitHub/homard && cargo test -p homard-core project_defaults 2>&1 | tail -10
 ```
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/arcctl-core/src/project_defaults.rs crates/arcctl-core/src/lib.rs
+git add crates/homard-core/src/project_defaults.rs crates/homard-core/src/lib.rs
 git commit -m "feat: add project directory defaults (directory → profile mapping)"
 ```
 
@@ -844,12 +844,12 @@ git commit -m "feat: add project directory defaults (directory → profile mappi
 ### Task 7: Database Migration (runs → sessions)
 
 **Files:**
-- Modify: `crates/arcctl-core/src/types.rs`
-- Modify: `crates/arcctl-core/src/store.rs`
+- Modify: `crates/homard-core/src/types.rs`
+- Modify: `crates/homard-core/src/store.rs`
 
 - [ ] **Step 1: Write test for new Session type and store**
 
-In `crates/arcctl-core/src/types.rs`, add:
+In `crates/homard-core/src/types.rs`, add:
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -881,7 +881,7 @@ pub struct Session {
 }
 ```
 
-In `crates/arcctl-core/src/store.rs` tests:
+In `crates/homard-core/src/store.rs` tests:
 
 ```rust
 #[test]
@@ -917,7 +917,7 @@ fn test_insert_and_get_session() {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo test -p arcctl-core test_insert_and_get_session 2>&1 | tail -10
+cd /Users/jwgrogan/GitHub/homard && cargo test -p homard-core test_insert_and_get_session 2>&1 | tail -10
 ```
 
 - [ ] **Step 3: Implement sessions table and migration**
@@ -959,13 +959,13 @@ Add `insert_session`, `get_session`, `complete_session`, `list_sessions` methods
 - [ ] **Step 4: Run tests**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo test -p arcctl-core store 2>&1 | tail -15
+cd /Users/jwgrogan/GitHub/homard && cargo test -p homard-core store 2>&1 | tail -15
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/arcctl-core/src/types.rs crates/arcctl-core/src/store.rs
+git add crates/homard-core/src/types.rs crates/homard-core/src/store.rs
 git commit -m "feat: add sessions table and Session type for multi-CLI tracking"
 ```
 
@@ -986,15 +986,15 @@ git commit -m "feat: add sessions table and Session type for multi-CLI tracking"
 In `src-tauri/src/state.rs`, replace `ProcessRegistry` and `children` with session-aware state:
 
 ```rust
-use arcctl_core::config::{ArcctlConfig, ArcctlDirs};
-use arcctl_core::store::Store;
-use arcctl_core::terminal::TerminalApp;
+use homard_core::config::{HomardConfig, HomardDirs};
+use homard_core::store::Store;
+use homard_core::terminal::TerminalApp;
 use std::sync::Mutex;
 
 pub struct AppState {
     pub store: Mutex<Store>,
-    pub config: Mutex<ArcctlConfig>,
-    pub dirs: ArcctlDirs,
+    pub config: Mutex<HomardConfig>,
+    pub dirs: HomardDirs,
     pub preferred_terminal: Mutex<Option<TerminalApp>>,
     pub telegram_poll_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub telegram_cancel: Mutex<Option<tokio_util::sync::CancellationToken>>,
@@ -1006,9 +1006,9 @@ pub struct AppState {
 In `src-tauri/src/commands/process.rs`:
 
 ```rust
-use arcctl_core::provider::ProviderId;
-use arcctl_core::terminal::TerminalApp;
-use arcctl_core::types::{Session, SessionStatus, Trigger};
+use homard_core::provider::ProviderId;
+use homard_core::terminal::TerminalApp;
+use homard_core::types::{Session, SessionStatus, Trigger};
 use chrono::Utc;
 use tauri::State;
 use uuid::Uuid;
@@ -1156,7 +1156,7 @@ Update `src/lib/tauri.ts` and `src/lib/store.ts` to use `Session` instead of `Se
 - [ ] **Step 5: Build to verify**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo build 2>&1 | tail -10 && npm run build 2>&1 | tail -5
+cd /Users/jwgrogan/GitHub/homard && cargo build 2>&1 | tail -10 && npm run build 2>&1 | tail -5
 ```
 
 - [ ] **Step 6: Commit**
@@ -1324,7 +1324,7 @@ Remove the old inline profile display and the direct `useProfilesStore` usage fo
 - [ ] **Step 3: Build and verify**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && npm run build 2>&1 | tail -5
+cd /Users/jwgrogan/GitHub/homard && npm run build 2>&1 | tail -5
 ```
 
 - [ ] **Step 4: Commit**
@@ -1363,7 +1363,7 @@ Update `src/pages/Sessions.tsx`:
 - [ ] **Step 3: Build and verify**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && npm run build 2>&1 | tail -5
+cd /Users/jwgrogan/GitHub/homard && npm run build 2>&1 | tail -5
 ```
 
 - [ ] **Step 4: Commit**
@@ -1378,17 +1378,17 @@ git commit -m "feat: redesign sessions page with terminal-based session spawning
 ### Task 11: Unified MCP Sync
 
 **Files:**
-- Create: `crates/arcctl-core/src/mcp_sync.rs`
+- Create: `crates/homard-core/src/mcp_sync.rs`
 - Create: `src-tauri/src/commands/mcp_sync.rs`
 - Modify: `src/components/settings/McpServersPanel.tsx`
 
 - [ ] **Step 1: Write MCP sync core logic**
 
-Create `crates/arcctl-core/src/mcp_sync.rs`:
-- `McpSyncManager` that loads `~/.arcctl/mcp-servers.json`
+Create `crates/homard-core/src/mcp_sync.rs`:
+- `McpSyncManager` that loads `~/.homard/mcp-servers.json`
 - Methods: `add_server`, `remove_server`, `list_servers`
 - `sync_to_provider(provider)` — writes MCP config to each CLI's settings file
-- `detect_drift(provider)` — compares arcctl's config with CLI's config
+- `detect_drift(provider)` — compares homard's config with CLI's config
 - Tests for round-trip and sync
 
 - [ ] **Step 2: Add Tauri commands**
@@ -1402,14 +1402,14 @@ Create `src-tauri/src/commands/mcp_sync.rs`:
 - [ ] **Step 3: Update McpServersPanel.tsx**
 
 Split into two sections:
-1. **Managed MCPs** — from arcctl's unified config, with sync status badges
+1. **Managed MCPs** — from homard's unified config, with sync status badges
 2. **Cloud Services** — read-only, from each CLI's settings (enabledMcpjsonServers + permission patterns)
 
 - [ ] **Step 4: Build and test**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo test -p arcctl-core mcp_sync 2>&1 | tail -10
-cd /Users/jwgrogan/GitHub/arcctl && npm run build 2>&1 | tail -5
+cd /Users/jwgrogan/GitHub/homard && cargo test -p homard-core mcp_sync 2>&1 | tail -10
+cd /Users/jwgrogan/GitHub/homard && npm run build 2>&1 | tail -5
 ```
 
 - [ ] **Step 5: Commit**
@@ -1426,14 +1426,14 @@ git commit -m "feat: unified MCP server management synced across CLIs"
 ### Task 12: Session File Parsers
 
 **Files:**
-- Create: `crates/arcctl-core/src/parsers/mod.rs`
-- Create: `crates/arcctl-core/src/parsers/claude.rs`
-- Create: `crates/arcctl-core/src/parsers/gemini.rs`
-- Modify: `crates/arcctl-core/Cargo.toml` (no new deps — uses serde_json already)
+- Create: `crates/homard-core/src/parsers/mod.rs`
+- Create: `crates/homard-core/src/parsers/claude.rs`
+- Create: `crates/homard-core/src/parsers/gemini.rs`
+- Modify: `crates/homard-core/Cargo.toml` (no new deps — uses serde_json already)
 
 - [ ] **Step 1: Define AgentNode and parser trait**
 
-In `crates/arcctl-core/src/parsers/mod.rs`:
+In `crates/homard-core/src/parsers/mod.rs`:
 
 ```rust
 pub mod claude;
@@ -1476,7 +1476,7 @@ pub trait SessionParser: Send + Sync {
 
 - [ ] **Step 2: Implement Claude JSONL parser**
 
-In `crates/arcctl-core/src/parsers/claude.rs`:
+In `crates/homard-core/src/parsers/claude.rs`:
 - Read JSONL lines
 - Track `toolUseID` → `parentToolUseID` relationships
 - When tool name is `Agent`, create a child AgentNode with the description/name from the tool args
@@ -1487,7 +1487,7 @@ Include tests with sample JSONL input.
 
 - [ ] **Step 3: Implement Gemini JSON parser**
 
-In `crates/arcctl-core/src/parsers/gemini.rs`:
+In `crates/homard-core/src/parsers/gemini.rs`:
 - Parse full JSON session file
 - Extract `toolCalls` with `displayName` and `status`
 - Build flat tree (most Gemini sessions are single-agent with tool calls)
@@ -1497,13 +1497,13 @@ Include tests with sample JSON input.
 - [ ] **Step 4: Run tests**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo test -p arcctl-core parsers 2>&1 | tail -15
+cd /Users/jwgrogan/GitHub/homard && cargo test -p homard-core parsers 2>&1 | tail -15
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/arcctl-core/src/parsers/
+git add crates/homard-core/src/parsers/
 git commit -m "feat: session file parsers for Claude JSONL and Gemini JSON"
 ```
 
@@ -1512,14 +1512,14 @@ git commit -m "feat: session file parsers for Claude JSONL and Gemini JSON"
 ### Task 13: Session Monitor (File Watcher)
 
 **Files:**
-- Create: `crates/arcctl-core/src/session_monitor.rs`
-- Modify: `crates/arcctl-core/Cargo.toml` (add `notify = "7"`)
+- Create: `crates/homard-core/src/session_monitor.rs`
+- Modify: `crates/homard-core/Cargo.toml` (add `notify = "7"`)
 - Modify: `src-tauri/src/lib.rs` (start monitor on setup)
 
 - [ ] **Step 1: Write SessionMonitor**
 
 ```rust
-// crates/arcctl-core/src/session_monitor.rs
+// crates/homard-core/src/session_monitor.rs
 // - Watches session files using notify crate
 // - On file change, reads new content, parses via provider-specific parser
 // - Maintains current SessionTree per session
@@ -1547,7 +1547,7 @@ When a session is spawned (Task 8), also start monitoring its session file.
 
 - [ ] **Step 3: Add `notify` dependency**
 
-In `crates/arcctl-core/Cargo.toml`:
+In `crates/homard-core/Cargo.toml`:
 ```toml
 notify = "7"
 ```
@@ -1555,7 +1555,7 @@ notify = "7"
 - [ ] **Step 4: Test with a real session file**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && cargo test -p arcctl-core session_monitor 2>&1 | tail -10
+cd /Users/jwgrogan/GitHub/homard && cargo test -p homard-core session_monitor 2>&1 | tail -10
 ```
 
 - [ ] **Step 5: Commit**
@@ -1629,7 +1629,7 @@ In `src/pages/Sessions.tsx`:
 - [ ] **Step 5: Build and verify**
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl && npm run build 2>&1 | tail -5
+cd /Users/jwgrogan/GitHub/homard && npm run build 2>&1 | tail -5
 ```
 
 - [ ] **Step 6: Commit**
@@ -1722,7 +1722,7 @@ git commit -m "feat: session fork creates branched conversation in new terminal"
 ### Task 17: Session History with Filters
 
 **Files:**
-- Modify: `crates/arcctl-core/src/store.rs`
+- Modify: `crates/homard-core/src/store.rs`
 - Modify: `src/pages/Sessions.tsx`
 - Modify: `src/lib/tauri.ts`
 
@@ -1800,7 +1800,7 @@ git commit -m "feat: dock/tray hybrid — shows in dock when window open, tray-o
 
 **Files:**
 - Modify: `src-tauri/src/lib.rs`
-- Modify: `crates/arcctl-core/src/store.rs`
+- Modify: `crates/homard-core/src/store.rs`
 
 Background task that runs every 5 seconds, checks if `terminal_pid` is still alive for each running session via `kill(pid, 0)`. If PID is gone, marks session as `Stopped` with `ended_at` timestamp. Started on Tauri app setup, runs for the lifetime of the app.
 
@@ -1814,7 +1814,7 @@ Background task that runs every 5 seconds, checks if `terminal_pid` is still ali
 ### Task 20: OAuth Health Monitoring + CredentialManager Trait
 
 **Files:**
-- Modify: `crates/arcctl-core/src/profile.rs`
+- Modify: `crates/homard-core/src/profile.rs`
 - Modify: `src/components/ProfileSwitcher.tsx`
 - Modify: `src-tauri/src/commands/profile.rs`
 
@@ -1848,7 +1848,7 @@ pub enum CredentialHealth { Valid, Expiring, Expired, Unknown }
 
 - [ ] **Step 1: Add `detect_claude_switch` command** — checks if `/usr/local/bin/claude-switch` exists
 - [ ] **Step 2: Add migration prompt in Health page** — if detected, show banner: "claude-switch detected. Import profiles and uninstall?"
-- [ ] **Step 3: Add `import_claude_switch_profiles` command** — scans claude-switch's profile storage, imports into arcctl
+- [ ] **Step 3: Add `import_claude_switch_profiles` command** — scans claude-switch's profile storage, imports into homard
 - [ ] **Step 4: Test and commit**
 
 ---
@@ -1856,7 +1856,7 @@ pub enum CredentialHealth { Valid, Expiring, Expired, Unknown }
 ### Task 22: Data Migration (runs → sessions backfill)
 
 **Files:**
-- Modify: `crates/arcctl-core/src/store.rs`
+- Modify: `crates/homard-core/src/store.rs`
 
 - [ ] **Step 1: Add migration step** — in `migrate()`, after creating `sessions` table, check if `runs` has data and `sessions` is empty. If so, copy runs into sessions with `provider: "claude"` and map `RunStatus::Complete` → `SessionStatus::Stopped`.
 - [ ] **Step 2: Write test** — insert runs, run migrate, verify sessions populated
@@ -1874,7 +1874,7 @@ These bugs exist in plan code snippets and must be fixed when implementing:
 4. **terminal.rs:** Ghostty launch should use direct CLI (`ghostty -e`) not `open -a`
 5. **process.rs (Task 8):** `session_id` is moved then cloned — separate `cli_session_id` generation before constructing Session
 6. **process.rs (Task 8):** Replace `serde_json::from_str(&format!(...))` with `ProviderId::from_str()` impl
-7. **lib.rs module declarations:** Add `pub mod parsers;` (Task 12), `pub mod session_monitor;` (Task 13), `pub mod mcp_sync;` (Task 11) to `crates/arcctl-core/src/lib.rs`
+7. **lib.rs module declarations:** Add `pub mod parsers;` (Task 12), `pub mod session_monitor;` (Task 13), `pub mod mcp_sync;` (Task 11) to `crates/homard-core/src/lib.rs`
 8. **commands/mod.rs:** Register `mcp_sync` module in Tauri commands module
 9. **libc dependency:** Already in `Cargo.toml` — verify it's available in `src-tauri` crate
 
@@ -1885,7 +1885,7 @@ These bugs exist in plan code snippets and must be fixed when implementing:
 After all tasks:
 
 ```bash
-cd /Users/jwgrogan/GitHub/arcctl
+cd /Users/jwgrogan/GitHub/homard
 cargo test                     # All Rust tests pass
 cargo clippy                   # No warnings
 npm run build                  # Frontend builds clean

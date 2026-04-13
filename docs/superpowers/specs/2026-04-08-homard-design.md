@@ -2,13 +2,13 @@
 
 **Date:** 2026-04-08
 **Status:** Design approved, pending implementation plan
-**Origin:** Fork of [arcctl](https://github.com/jwgrogan/arcctl) with agent core ported from [ysz/nanoClaw](https://github.com/ysz/nanoClaw)
+**Origin:** Fork of [homard](https://github.com/jwgrogan/homard) with agent core ported from [ysz/nanoClaw](https://github.com/ysz/nanoClaw)
 
 ---
 
 ## Overview
 
-Homard is an always-on macOS personal AI assistant that lives in your menu bar and is reachable via Telegram. It combines arcctl's Tauri tray shell, Telegram bridge, and launchd scheduling with a ReAct-style agent loop ported from nanoClaw. OpenClaw-style identity files provide deep context and autonomy.
+Homard is an always-on macOS personal AI assistant that lives in your menu bar and is reachable via Telegram. It combines homard's Tauri tray shell, Telegram bridge, and launchd scheduling with a ReAct-style agent loop ported from nanoClaw. OpenClaw-style identity files provide deep context and autonomy.
 
 **Core tenets:**
 - Lightweight: Rust daemon, low memory footprint, runs on a MacBook Air
@@ -614,7 +614,7 @@ homard/
 
 ---
 
-## What Gets Stripped from arcctl
+## What Gets Stripped from homard
 
 **Deleted:**
 - `agents.rs` — agent/command discovery
