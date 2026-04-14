@@ -30,13 +30,13 @@ pub async fn chat(
         state.agent.run(&channel, &req.message, Trigger::Chat).await
     }).await;
 
-    let response = match result {
-        Ok(Ok(text)) => text,
+    let (response, run_id) = match result {
+        Ok(Ok((text, id))) => (text, id),
         Ok(Err(e)) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
         Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Agent panicked: {}", e))),
     };
 
-    Ok(Json(ChatResponse { response, run_id: String::new() }))
+    Ok(Json(ChatResponse { response, run_id }))
 }
 
 pub async fn stop_run(State(state): State<AppState>) -> StatusCode {
