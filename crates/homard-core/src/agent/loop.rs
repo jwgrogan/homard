@@ -32,7 +32,7 @@ impl AgentLoop {
         Self { llm, tools, store, context, security, stop_rx }
     }
 
-    pub async fn run(&self, channel: &str, user_message: &str, trigger: Trigger) -> Result<String> {
+    pub async fn run(&self, channel: &str, user_message: &str, trigger: Trigger) -> Result<(String, String)> {
         let run_id = uuid::Uuid::new_v4().to_string();
         let run = AgentRun {
             id: run_id.clone(),
@@ -221,6 +221,6 @@ impl AgentLoop {
             store.complete_run(&run_id, status, error_msg.as_deref(), iterations)?;
         }
 
-        result
+        result.map(|content| (content, run_id))
     }
 }

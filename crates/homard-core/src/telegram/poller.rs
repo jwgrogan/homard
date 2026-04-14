@@ -324,7 +324,7 @@ pub async fn run_poller(
                         let client_clone = client.clone();
                         tokio::spawn(async move {
                             match agent_clone.run(&channel, &text, Trigger::Telegram).await {
-                                Ok(response) => {
+                                Ok((response, _run_id)) => {
                                     let _ = client_clone.chunk_and_send(chat_id, &response).await;
                                 }
                                 Err(e) => {

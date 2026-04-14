@@ -60,7 +60,7 @@ pub async fn run_scheduler(
                     // Run through agent loop
                     let channel = format!("cron_{}", schedule.name.to_lowercase().replace(' ', "_"));
                     match agent.run(&channel, &schedule.message, Trigger::Cron).await {
-                        Ok(response) => {
+                        Ok((response, _run_id)) => {
                             {
                                 let s = store.lock().await;
                                 let _ = s.complete_cron_run(run_id, true, None);
