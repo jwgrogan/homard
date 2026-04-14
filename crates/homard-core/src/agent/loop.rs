@@ -1,13 +1,14 @@
-use std::sync::Arc;
-use tokio::sync::watch;
-use crate::llm::client::LlmClient;
-use crate::tools::registry::ToolRegistry;
-use crate::types::*;
-use crate::store::Store;
-use crate::error::Result;
-use crate::security::SecurityManager;
 use super::context::ContextBuilder;
 use super::hang::HangDetector;
+use crate::error::Result;
+use crate::llm::client::LlmClient;
+use crate::security::{SecurityManager, ToolAuthorization};
+use crate::store::Store;
+use crate::tools::registry::ToolRegistry;
+use crate::types::ToolPolicy;
+use crate::types::*;
+use std::sync::Arc;
+use tokio::sync::watch;
 
 const MAX_ITERATIONS: u32 = 50;
 
@@ -29,7 +30,14 @@ impl AgentLoop {
         security: Arc<SecurityManager>,
         stop_rx: watch::Receiver<bool>,
     ) -> Self {
-        Self { llm, tools, store, context, security, stop_rx }
+        Self {
+            llm,
+            tools,
+            store,
+            context,
+            security,
+            stop_rx,
+        }
     }
 
     pub async fn run(&self, channel: &str, user_message: &str, trigger: Trigger) -> Result<String> {
@@ -98,11 +106,15 @@ impl AgentLoop {
         let result = loop {
             // Check stop signal
             if *self.stop_rx.borrow() {
-                break Err(crate::error::HomardError::Agent("Run stopped by user".to_string()));
+                break Err(crate::error::HomardError::Agent(
+                    "Run stopped by user".to_string(),
+                ));
             }
 
             // Hang detection
-            if let Some(action) = hang_detector.check(iterations, start_time.elapsed(), &permission_level) {
+            if let Some(action) =
+                hang_detector.check(iterations, start_time.elapsed(), &permission_level)
+            {
                 match action {
                     super::hang::HangAction::Pause(msg) => {
                         // In supervised mode, we'd need to wait for user response
@@ -160,13 +172,30 @@ impl AgentLoop {
                     let tc_clone = tc.clone();
                     tool_futures.push(async move {
                         // Check security
-                        let approved = security.check_tool(&tc_clone.name, &tc_clone.arguments).await;
+                        let policy = tools
+                            .policy_for(&tc_clone.name)
+                            .unwrap_or(ToolPolicy::StatefulWrite);
                         let args_str = tc_clone.arguments.to_string();
-                        if !approved {
-                            return (tc_clone.id.clone(), tc_clone.name.clone(), args_str, "Tool execution denied by security policy".to_string(), false);
+                        let decision = security
+                            .check_tool(&tc_clone.name, policy, &tc_clone.arguments)
+                            .await;
+                        if let ToolAuthorization::Deny(reason) = decision {
+                            return (
+                                tc_clone.id.clone(),
+                                tc_clone.name.clone(),
+                                args_str,
+                                reason,
+                                false,
+                            );
                         }
                         let result = tools.execute(&tc_clone.name, &tc_clone.arguments).await;
-                        (tc_clone.id.clone(), tc_clone.name.clone(), args_str, result.unwrap_or_else(|e| format!("Error: {}", e)), true)
+                        (
+                            tc_clone.id.clone(),
+                            tc_clone.name.clone(),
+                            args_str,
+                            result.unwrap_or_else(|e| format!("Error: {}", e)),
+                            true,
+                        )
                     });
                 }
 
@@ -177,7 +206,8 @@ impl AgentLoop {
                     // Audit log
                     {
                         let store = self.store.lock().await;
-                        let _ = store.log_audit(tool_name, Some(tool_args), Some(result), *approved);
+                        let _ =
+                            store.log_audit(tool_name, Some(tool_args), Some(result), *approved);
                     }
                 }
                 for (tool_call_id, _tool_name, _tool_args, result, _approved) in results {
@@ -198,7 +228,9 @@ impl AgentLoop {
                 hang_detector.record_tool_calls(&response.tool_calls);
             } else {
                 // No content and no tool calls -- unexpected
-                break Err(crate::error::HomardError::Agent("LLM returned empty response".to_string()));
+                break Err(crate::error::HomardError::Agent(
+                    "LLM returned empty response".to_string(),
+                ));
             }
 
             iterations += 1;

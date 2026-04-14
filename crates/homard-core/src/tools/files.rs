@@ -1,5 +1,6 @@
-use crate::types::ToolSchema;
 use crate::error::{HomardError, Result};
+use crate::types::ToolSchema;
+use std::path::{Component, Path, PathBuf};
 
 const BLOCKED_READ_PATHS: &[&str] = &[
     ".ssh/",
@@ -16,44 +17,38 @@ fn is_read_blocked(path: &str) -> bool {
 }
 
 fn is_write_allowed(path: &str) -> bool {
-    // Block path traversal
-    if path.contains("..") {
-        return false;
+    resolve_write_path(path).is_some()
+}
+
+fn has_parent_dir(path: &Path) -> bool {
+    path.components()
+        .any(|component| matches!(component, Component::ParentDir))
+}
+
+fn resolve_write_path(path: &str) -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    let homard_root = home.join(".homard");
+
+    let input = Path::new(path);
+    if has_parent_dir(input) {
+        return None;
     }
 
-    // Resolve to absolute for checking
-    let expanded = if path.starts_with("~/") {
-        if let Some(home) = dirs::home_dir() {
-            home.join(&path[2..]).to_string_lossy().to_string()
-        } else {
-            return false;
-        }
-    } else if path.starts_with('/') {
-        path.to_string()
+    let resolved = if let Some(stripped) = path.strip_prefix("~/") {
+        home.join(stripped)
+    } else if input.is_absolute() {
+        input.to_path_buf()
     } else {
-        // Relative paths: only allow within ~/.homard/workspace/
-        if let Some(home) = dirs::home_dir() {
-            let workspace = home.join(".homard").join("workspace");
-            // Ensure workspace exists
-            let _ = std::fs::create_dir_all(&workspace);
-            workspace.join(path).to_string_lossy().to_string()
-        } else {
-            return false;
-        }
+        let workspace = homard_root.join("workspace");
+        let _ = std::fs::create_dir_all(&workspace);
+        workspace.join(input)
     };
 
-    // Check allowed prefixes
-    if let Some(home) = dirs::home_dir() {
-        let home_str = home.to_string_lossy();
-        let allowed = [".homard/"];
-        for prefix in &allowed {
-            if expanded.starts_with(&format!("{}/{}", home_str, prefix)) {
-                return true;
-            }
-        }
+    if resolved.starts_with(&homard_root) {
+        Some(resolved)
+    } else {
+        None
     }
-
-    false
 }
 
 pub fn read_schema() -> ToolSchema {
@@ -86,38 +81,76 @@ pub fn write_schema() -> ToolSchema {
 }
 
 pub async fn read(args: serde_json::Value) -> Result<String> {
-    let path = args.get("path")
+    let path = args
+        .get("path")
         .and_then(|p| p.as_str())
         .ok_or_else(|| HomardError::Tool("Missing 'path' argument".to_string()))?;
 
     if is_read_blocked(path) {
-        return Err(HomardError::Tool(format!("Access denied: '{}' is a sensitive file", path)));
+        return Err(HomardError::Tool(format!(
+            "Access denied: '{}' is a sensitive file",
+            path
+        )));
     }
 
-    tokio::fs::read_to_string(path).await
+    tokio::fs::read_to_string(path)
+        .await
         .map_err(|e| HomardError::Tool(format!("Failed to read '{}': {}", path, e)))
 }
 
 pub async fn write(args: serde_json::Value) -> Result<String> {
-    let path = args.get("path")
+    let path = args
+        .get("path")
         .and_then(|p| p.as_str())
         .ok_or_else(|| HomardError::Tool("Missing 'path' argument".to_string()))?;
+
+    let resolved = resolve_write_path(path).ok_or_else(|| {
+        HomardError::Tool(format!(
+            "Write denied: '{}' is outside allowed directories. Writes are restricted to ~/.homard/",
+            path
+        ))
+    })?;
 
     if !is_write_allowed(path) {
         return Err(HomardError::Tool(format!("Write denied: '{}' is outside allowed directories. Writes are restricted to ~/.homard/", path)));
     }
 
-    let content = args.get("content")
+    let content = args
+        .get("content")
         .and_then(|c| c.as_str())
         .ok_or_else(|| HomardError::Tool("Missing 'content' argument".to_string()))?;
 
-    if let Some(parent) = std::path::Path::new(path).parent() {
-        tokio::fs::create_dir_all(parent).await
+    if let Some(parent) = resolved.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
             .map_err(|e| HomardError::Tool(e.to_string()))?;
     }
 
-    tokio::fs::write(path, content).await
-        .map_err(|e| HomardError::Tool(format!("Failed to write '{}': {}", path, e)))?;
+    tokio::fs::write(&resolved, content).await.map_err(|e| {
+        HomardError::Tool(format!("Failed to write '{}': {}", resolved.display(), e))
+    })?;
 
-    Ok(format!("Wrote {} bytes to {}", content.len(), path))
+    Ok(format!(
+        "Wrote {} bytes to {}",
+        content.len(),
+        resolved.display()
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_write_path;
+
+    #[test]
+    fn relative_write_paths_resolve_into_homard_workspace() {
+        let resolved = resolve_write_path("notes/todo.txt").expect("resolved path");
+        let home = dirs::home_dir().expect("home dir");
+        assert_eq!(resolved, home.join(".homard/workspace/notes/todo.txt"));
+    }
+
+    #[test]
+    fn parent_dir_components_are_rejected() {
+        assert!(resolve_write_path("../escape.txt").is_none());
+        assert!(resolve_write_path("~/../escape.txt").is_none());
+    }
 }

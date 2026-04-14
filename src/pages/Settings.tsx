@@ -171,7 +171,7 @@ function PermissionsSection() {
   }, []);
 
   const levels = [
-    { id: "supervised", label: "Supervised", desc: "Approve dangerous actions before they run." },
+    { id: "supervised", label: "Supervised", desc: "Run safe actions automatically and block anything that still needs approval." },
     { id: "autonomous", label: "Autonomous", desc: "Run without prompts and notify only on outcomes." },
     { id: "locked", label: "Locked", desc: "Keep the assistant read-only." },
   ];

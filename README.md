@@ -118,7 +118,7 @@ Unlike some alternatives, the off switch actually works.
 
 Three permission levels (toggle in Settings or via Telegram):
 
-- **Supervised** (default): dangerous commands surface for approval, hang detection pauses and asks
+- **Supervised** (default): safe actions run automatically, commands that still need approval are blocked until the approval flow exists
 - **Autonomous**: everything auto-approved, hang alerts but never pauses
 - **Locked**: read-only, no shell/file writes/outbound messages
 

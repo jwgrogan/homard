@@ -10,7 +10,18 @@ pub enum PermissionLevel {
 }
 
 impl Default for PermissionLevel {
-    fn default() -> Self { Self::Supervised }
+    fn default() -> Self {
+        Self::Supervised
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolPolicy {
+    ReadOnly,
+    StatefulWrite,
+    ShellCommand,
+    DelegatedSession,
+    ProcessControl,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -44,7 +55,7 @@ pub enum ProviderKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
     pub kind: ProviderKind,
-    pub auth_type: String,  // "oauth_pkce" or "api_key"
+    pub auth_type: String, // "oauth_pkce" or "api_key"
     pub client_id: Option<String>,
     pub token_keychain_ref: Option<String>,
     pub api_key_keychain_ref: Option<String>,
@@ -74,7 +85,7 @@ pub struct AgentRun {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
-    pub role: String,       // "system", "user", "assistant", "tool"
+    pub role: String, // "system", "user", "assistant", "tool"
     pub content: String,
     pub tool_call_id: Option<String>,
     pub tool_calls: Option<Vec<ToolCall>>,
@@ -101,7 +112,7 @@ pub struct Schedule {
     pub id: String,
     pub name: String,
     pub message: String,
-    pub schedule: String,  // cron expression
+    pub schedule: String, // cron expression
     pub enabled: bool,
     pub deliver_to: Vec<String>,
 }
@@ -156,7 +167,9 @@ pub enum ServerMode {
 }
 
 impl Default for ServerMode {
-    fn default() -> Self { Self::Off }
+    fn default() -> Self {
+        Self::Off
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

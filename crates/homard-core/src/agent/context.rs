@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use crate::error::Result;
 use crate::types::{ChatMessage, ToolSchema};
+use std::path::PathBuf;
 
 pub struct ContextBuilder {
     homard_dir: PathBuf,
@@ -15,13 +15,24 @@ impl ContextBuilder {
         let mut parts = Vec::new();
 
         // Load identity files in order
-        let files = ["IDENTITY.md", "SOUL.md", "USER.md", "AGENTS.md", "TOOLS.md", "MEMORY.md"];
+        let files = [
+            "IDENTITY.md",
+            "SOUL.md",
+            "USER.md",
+            "AGENTS.md",
+            "TOOLS.md",
+            "MEMORY.md",
+        ];
         for filename in &files {
             let path = self.homard_dir.join(filename);
             if path.exists() {
                 match tokio::fs::read_to_string(&path).await {
                     Ok(content) if !content.trim().is_empty() => {
-                        parts.push(format!("# {}\n{}", filename.trim_end_matches(".md"), content.trim()));
+                        parts.push(format!(
+                            "# {}\n{}",
+                            filename.trim_end_matches(".md"),
+                            content.trim()
+                        ));
                     }
                     _ => {}
                 }
@@ -30,7 +41,10 @@ impl ContextBuilder {
 
         // Add dynamic context
         let now = chrono::Local::now();
-        parts.push(format!("# Current Context\nDate: {}\nPlatform: macOS", now.format("%Y-%m-%d %H:%M %Z")));
+        parts.push(format!(
+            "# Current Context\nDate: {}\nPlatform: macOS",
+            now.format("%Y-%m-%d %H:%M %Z")
+        ));
 
         Ok(parts.join("\n\n"))
     }
@@ -64,22 +78,57 @@ impl ContextBuilder {
         let lower = message.to_lowercase();
 
         // Core tools always included
-        let core_tools = ["shell_exec", "file_read", "file_write", "memory_save", "memory_search"];
+        let core_tools = [
+            "shell_exec",
+            "file_read",
+            "file_write",
+            "memory_save",
+            "memory_search",
+        ];
 
         // Keyword -> tool name mappings
         let keyword_tools: &[(&[&str], &str)] = &[
-            (&["search", "find", "look up", "google", "what is"], "web_search"),
-            (&["url", "http", "fetch", "website", "page", "link"], "web_fetch"),
-            (&["deploy", "build", "run", "code", "fix", "debug", "implement", "refactor", "test", "claude", "codex"], "spawn_session"),
-            (&["session", "running", "status", "check on"], "list_sessions"),
+            (
+                &["search", "find", "look up", "google", "what is"],
+                "web_search",
+            ),
+            (
+                &["url", "http", "fetch", "website", "page", "link"],
+                "web_fetch",
+            ),
+            (
+                &[
+                    "delegate",
+                    "delegat",
+                    "spawn session",
+                    "claude",
+                    "codex",
+                    "coding agent",
+                ],
+                "spawn_session",
+            ),
+            (
+                &["session", "running", "status", "check on"],
+                "list_sessions",
+            ),
             (&["kill", "stop", "cancel", "abort"], "kill_session"),
-            (&["remember", "note", "save", "memory", "learn"], "memory_save"),
+            (
+                &["remember", "note", "save", "memory", "learn"],
+                "memory_save",
+            ),
             (&["recall", "memory", "did i", "what was"], "memory_search"),
-            (&["profile", "my name", "about me", "i am", "i work"], "update_user_profile"),
-            (&["memory.md", "reorganize", "clean up memory", "prune"], "maintain_memory"),
+            (
+                &["profile", "my name", "about me", "i am", "i work"],
+                "update_user_profile",
+            ),
+            (
+                &["memory.md", "reorganize", "clean up memory", "prune"],
+                "maintain_memory",
+            ),
         ];
 
-        let mut selected_names: std::collections::HashSet<&str> = core_tools.iter().copied().collect();
+        let mut selected_names: std::collections::HashSet<&str> =
+            core_tools.iter().copied().collect();
 
         for (keywords, tool_name) in keyword_tools {
             if keywords.iter().any(|kw| lower.contains(kw)) {
@@ -88,15 +137,52 @@ impl ContextBuilder {
         }
 
         // If message is long or complex, include more tools
-        if lower.len() > 200 || lower.contains("and") || lower.contains("then") {
-            for tool in all_tools {
-                selected_names.insert(&tool.name);
+        if lower.len() > 200 || lower.contains(" and ") || lower.contains(" then ") {
+            for safe_extra in ["web_search", "web_fetch", "update_user_profile"] {
+                selected_names.insert(safe_extra);
             }
         }
 
-        all_tools.iter()
+        all_tools
+            .iter()
             .filter(|t| selected_names.contains(t.name.as_str()))
             .cloned()
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ContextBuilder;
+    use crate::types::ToolSchema;
+    use std::path::PathBuf;
+
+    fn tool(name: &str) -> ToolSchema {
+        ToolSchema {
+            name: name.to_string(),
+            description: name.to_string(),
+            parameters: serde_json::json!({}),
+        }
+    }
+
+    #[test]
+    fn generic_complex_message_does_not_expose_spawn_session() {
+        let builder = ContextBuilder::new(PathBuf::from("/tmp"));
+        let tools = vec![
+            tool("shell_exec"),
+            tool("file_read"),
+            tool("file_write"),
+            tool("memory_save"),
+            tool("memory_search"),
+            tool("spawn_session"),
+            tool("web_search"),
+        ];
+
+        let selected = builder.select_tools(
+            "Please fix the build and then test the result and summarize it.",
+            &tools,
+        );
+
+        assert!(!selected.iter().any(|t| t.name == "spawn_session"));
     }
 }
