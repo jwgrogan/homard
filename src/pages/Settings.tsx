@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-shell";
 import {
   apiFetch,
@@ -214,11 +214,11 @@ function TelegramSection({ onMessage }: { onMessage: (message: string) => void }
   const [newUsername, setNewUsername] = useState("");
   const usernames = status?.allowed_usernames || [];
 
-  const refresh = () => getTelegramStatus().then((data) => setStatus(data as typeof status)).catch(() => {});
+  const refresh = useCallback(() => getTelegramStatus().then((data) => setStatus(data as typeof status)).catch(() => {}), []);
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [refresh]);
 
   const persistUsernames = async (updated: string[]) => {
     const res = await apiFetch("/settings");
