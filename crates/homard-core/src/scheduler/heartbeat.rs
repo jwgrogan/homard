@@ -27,7 +27,10 @@ pub fn parse_heartbeat(content: &str) -> Vec<(String, String, Vec<String>)> {
             let header = trimmed.trim_start_matches('#').trim();
 
             // Try explicit cron syntax first: "Cron: 0 9 * * *"
-            if let Some(cron) = header.strip_prefix("Cron:").or_else(|| header.strip_prefix("cron:")) {
+            if let Some(cron) = header
+                .strip_prefix("Cron:")
+                .or_else(|| header.strip_prefix("cron:"))
+            {
                 current_name = Some(header.to_string());
                 current_cron = Some(cron.trim().to_string());
                 continue;
@@ -87,8 +90,13 @@ fn parse_natural_schedule(lower: &str) -> Option<String> {
 
     // Day-specific
     let days = [
-        ("monday", 1), ("tuesday", 2), ("wednesday", 3),
-        ("thursday", 4), ("friday", 5), ("saturday", 6), ("sunday", 0),
+        ("monday", 1),
+        ("tuesday", 2),
+        ("wednesday", 3),
+        ("thursday", 4),
+        ("friday", 5),
+        ("saturday", 6),
+        ("sunday", 0),
     ];
     for (day_name, dow) in &days {
         if lower.contains(day_name) {
@@ -109,8 +117,20 @@ fn extract_hour(text: &str) -> Option<u32> {
             let h: u32 = caps[1].parse().ok()?;
             let ampm = &caps[2];
             let hour = match ampm {
-                "am" => if h == 12 { 0 } else { h },
-                "pm" => if h == 12 { 12 } else { h + 12 },
+                "am" => {
+                    if h == 12 {
+                        0
+                    } else {
+                        h
+                    }
+                }
+                "pm" => {
+                    if h == 12 {
+                        12
+                    } else {
+                        h + 12
+                    }
+                }
                 _ => h,
             };
             return Some(hour);

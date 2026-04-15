@@ -1,13 +1,14 @@
-use std::sync::OnceLock;
-use crate::types::*;
-use crate::error::{HomardError, Result};
 use super::client::LlmResponse;
+use crate::error::{HomardError, Result};
+use crate::types::*;
+use std::sync::OnceLock;
 
 static CODEX_PATH: OnceLock<Option<String>> = OnceLock::new();
 static CLAUDE_PATH: OnceLock<Option<String>> = OnceLock::new();
 
 /// Track whether we've had a first message (for --continue optimization)
-static CLAUDE_HAS_SESSION: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static CLAUDE_HAS_SESSION: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 fn find_cli(binary: &str) -> Option<&'static str> {
     let cell = match binary {
@@ -22,7 +23,8 @@ fn find_cli(binary: &str) -> Option<&'static str> {
             .ok()
             .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-    }).as_deref()
+    })
+    .as_deref()
 }
 
 /// Strip ANSI escape codes and control characters from CLI output
@@ -77,7 +79,10 @@ impl CliBackend {
     }
 
     /// Run a prompt through the Claude CLI (uses user's Anthropic auth)
-    pub async fn claude_chat(messages: &[ChatMessage], tools: &[ToolSchema]) -> Result<LlmResponse> {
+    pub async fn claude_chat(
+        messages: &[ChatMessage],
+        tools: &[ToolSchema],
+    ) -> Result<LlmResponse> {
         let is_cont = CLAUDE_HAS_SESSION.load(std::sync::atomic::Ordering::Relaxed);
         let prompt = Self::build_prompt(messages, tools, is_cont);
         let output = Self::run_cli("claude", &prompt, is_cont).await?;
@@ -89,10 +94,16 @@ impl CliBackend {
     }
 
     /// Build prompt — first call includes identity, subsequent calls just the user message
-    fn build_prompt(messages: &[ChatMessage], _tools: &[ToolSchema], is_continuation: bool) -> String {
+    fn build_prompt(
+        messages: &[ChatMessage],
+        _tools: &[ToolSchema],
+        is_continuation: bool,
+    ) -> String {
         // For continuations, just send the user's message — CLI already has context
         if is_continuation {
-            return messages.iter().rev()
+            return messages
+                .iter()
+                .rev()
                 .find(|m| m.role == "user")
                 .map(|m| m.content.clone())
                 .unwrap_or_default();
@@ -119,48 +130,68 @@ impl CliBackend {
 
     async fn run_cli(binary: &str, prompt: &str, continue_session: bool) -> Result<String> {
         // Check CLI is available (cached after first lookup)
-        let cli_path = find_cli(binary)
-            .ok_or_else(|| HomardError::Llm(format!(
+        let cli_path = find_cli(binary).ok_or_else(|| {
+            HomardError::Llm(format!(
                 "{} CLI not installed. Run `{}` to install it.",
                 binary,
-                if binary == "codex" { "npm i -g @openai/codex" } else { "npm i -g @anthropic-ai/claude-code" }
-            )))?;
+                if binary == "codex" {
+                    "npm i -g @openai/codex"
+                } else {
+                    "npm i -g @anthropic-ai/claude-code"
+                }
+            ))
+        })?;
 
         // Run CLI via sh -c with echo piped to stdin (codex needs stdin closed)
         let shell_cmd = if binary == "claude" {
             let cont_flag = if continue_session { " --continue" } else { "" };
-            format!("echo '' | {} -p {}{} --output-format text", cli_path, shell_escape(prompt), cont_flag)
+            format!(
+                "echo '' | {} -p {}{} --output-format text",
+                cli_path,
+                shell_escape(prompt),
+                cont_flag
+            )
         } else {
             format!("echo '' | {} exec {}", cli_path, shell_escape(prompt))
         };
 
         let mut cmd = tokio::process::Command::new("sh");
-        cmd.arg("-c").arg(&shell_cmd)
+        cmd.arg("-c")
+            .arg(&shell_cmd)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
-        let child = cmd.spawn()
+        let child = cmd
+            .spawn()
             .map_err(|e| HomardError::Llm(format!("Failed to start {}: {}", binary, e)))?;
 
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(300), // 5 min timeout
             child.wait_with_output(),
-        ).await
-            .map_err(|_| HomardError::Llm(format!("{} timed out after 5 minutes", binary)))?
-            .map_err(|e| HomardError::Llm(format!("{} failed: {}", binary, e)))?;
+        )
+        .await
+        .map_err(|_| HomardError::Llm(format!("{} timed out after 5 minutes", binary)))?
+        .map_err(|e| HomardError::Llm(format!("{} failed: {}", binary, e)))?;
 
         let stdout = strip_ansi(&String::from_utf8_lossy(&output.stdout));
         let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
 
         if output.status.success() {
             let text = if stdout.trim().is_empty() {
-                if stderr.trim().is_empty() { "(no output)".to_string() } else { stderr.trim().to_string() }
+                if stderr.trim().is_empty() {
+                    "(no output)".to_string()
+                } else {
+                    stderr.trim().to_string()
+                }
             } else {
                 stdout.trim().to_string()
             };
             Ok(text)
         } else {
-            Err(HomardError::Llm(format!("{} exited with error: {}", binary, stderr)))
+            Err(HomardError::Llm(format!(
+                "{} exited with error: {}",
+                binary, stderr
+            )))
         }
     }
 }

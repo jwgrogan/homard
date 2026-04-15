@@ -1,11 +1,11 @@
 use std::sync::Arc;
-use teloxide::prelude::*;
 use teloxide::payloads::GetUpdatesSetters;
+use teloxide::prelude::*;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use crate::agent::r#loop::AgentLoop;
-use crate::config::{HomardConfig, HomardDirs, add_paired_chat, validate_pairing_code};
+use crate::config::{add_paired_chat, validate_pairing_code, HomardConfig, HomardDirs};
 use crate::telegram::client::TelegramClient;
 use crate::types::Trigger;
 
@@ -16,16 +16,22 @@ pub enum Command {
     Pair(String),
     Stop,
     Perms(String),
-    Claude(String),  // /claude <prompt> — spawn a Claude session
+    Claude(String), // /claude <prompt> — spawn a Claude session
     ServerOff,
     ServerOn,
 }
 
 pub fn parse_command(text: &str) -> Option<Command> {
     let text = text.trim();
-    if text == "/start" { return Some(Command::Start); }
-    if text == "/status" { return Some(Command::Status); }
-    if text == "/stop" { return Some(Command::Stop); }
+    if text == "/start" {
+        return Some(Command::Start);
+    }
+    if text == "/status" {
+        return Some(Command::Status);
+    }
+    if text == "/stop" {
+        return Some(Command::Stop);
+    }
     if text.starts_with("/pair ") {
         return Some(Command::Pair(text[6..].trim().to_string()));
     }
@@ -38,8 +44,12 @@ pub fn parse_command(text: &str) -> Option<Command> {
     if text.starts_with("/claude ") {
         return Some(Command::Claude(text[8..].trim().to_string()));
     }
-    if text == "/server off" { return Some(Command::ServerOff); }
-    if text == "/server on" { return Some(Command::ServerOn); }
+    if text == "/server off" {
+        return Some(Command::ServerOff);
+    }
+    if text == "/server on" {
+        return Some(Command::ServerOn);
+    }
     None
 }
 
@@ -61,7 +71,9 @@ pub async fn run_poller(
 
     #[cfg(target_os = "macos")]
     let token = loop {
-        if cancel.is_cancelled() { return; }
+        if cancel.is_cancelled() {
+            return;
+        }
         match crate::config::get_telegram_token(&dirs) {
             Ok(Some(t)) => {
                 info!("Telegram poller: token found, starting...");
@@ -120,9 +132,11 @@ pub async fn run_poller(
 
                 // Check if user is allowed — by username allowlist or paired chat ID
                 let username = match &update.kind {
-                    teloxide::types::UpdateKind::Message(msg) => {
-                        msg.from.as_ref().and_then(|u| u.username.clone()).unwrap_or_default()
-                    }
+                    teloxide::types::UpdateKind::Message(msg) => msg
+                        .from
+                        .as_ref()
+                        .and_then(|u| u.username.clone())
+                        .unwrap_or_default(),
                     _ => String::new(),
                 };
 
@@ -135,7 +149,10 @@ pub async fn run_poller(
                 // Auto-pair allowed users on first message
                 if is_allowed && !config.telegram.paired_chat_ids.contains(&chat_id_str) {
                     let _ = add_paired_chat(&dirs, &chat_id_str);
-                    info!("Telegram: auto-paired chat {} for allowed user @{}", chat_id, username);
+                    info!(
+                        "Telegram: auto-paired chat {} for allowed user @{}",
+                        chat_id, username
+                    );
                 }
 
                 match parse_command(&text) {
@@ -151,17 +168,25 @@ pub async fn run_poller(
                             let _ = client.send_message(chat_id, "Usage: /pair <code> \u{2014} get your pairing code from the Homard app.").await;
                         } else {
                             match validate_pairing_code(&dirs, &code) {
-                                Ok(true) => {
-                                    match add_paired_chat(&dirs, &chat_id_str) {
-                                        Ok(()) => {
-                                            let _ = client.send_message(chat_id, "Paired! You can now chat with Homard here.").await;
-                                            info!("Telegram: chat {} paired", chat_id);
-                                        }
-                                        Err(e) => {
-                                            let _ = client.send_message(chat_id, &format!("Pairing failed: {}", e)).await;
-                                        }
+                                Ok(true) => match add_paired_chat(&dirs, &chat_id_str) {
+                                    Ok(()) => {
+                                        let _ = client
+                                            .send_message(
+                                                chat_id,
+                                                "Paired! You can now chat with Homard here.",
+                                            )
+                                            .await;
+                                        info!("Telegram: chat {} paired", chat_id);
                                     }
-                                }
+                                    Err(e) => {
+                                        let _ = client
+                                            .send_message(
+                                                chat_id,
+                                                &format!("Pairing failed: {}", e),
+                                            )
+                                            .await;
+                                    }
+                                },
                                 Ok(false) => {
                                     let _ = client.send_message(chat_id, "Invalid or expired code. Generate a new one in Homard settings.").await;
                                 }
@@ -202,7 +227,9 @@ pub async fn run_poller(
                             crate::types::PermissionLevel::Autonomous => "autonomous",
                             crate::types::PermissionLevel::Locked => "locked",
                         };
-                        let _ = client.send_message(chat_id, &format!("Permission level: {}", name)).await;
+                        let _ = client
+                            .send_message(chat_id, &format!("Permission level: {}", name))
+                            .await;
                     }
                     Some(Command::Claude(prompt)) if is_allowed => {
                         if prompt.is_empty() {
@@ -211,14 +238,15 @@ pub async fn run_poller(
                             // Parse optional --dir flag
                             let (task, dir) = if let Some(idx) = prompt.find("--dir") {
                                 let task = prompt[..idx].trim().to_string();
-                                let dir = prompt[idx+5..].trim().to_string();
+                                let dir = prompt[idx + 5..].trim().to_string();
                                 (task, if dir.is_empty() { ".".to_string() } else { dir })
                             } else {
                                 (prompt.clone(), ".".to_string())
                             };
 
                             // Generate a session name from the prompt
-                            let name: String = task.split_whitespace()
+                            let name: String = task
+                                .split_whitespace()
                                 .take(4)
                                 .collect::<Vec<_>>()
                                 .join("-")
@@ -238,8 +266,12 @@ pub async fn run_poller(
                                 // Launch Claude in background — user manages from Claude app
                                 let escaped = crate::llm::cli_backend::shell_escape_pub(&task);
                                 let dir_expanded = if dir.starts_with("~/") {
-                                    dirs::home_dir().map(|h| h.join(&dir[2..]).to_string_lossy().to_string()).unwrap_or(dir.clone())
-                                } else { dir.clone() };
+                                    dirs::home_dir()
+                                        .map(|h| h.join(&dir[2..]).to_string_lossy().to_string())
+                                        .unwrap_or(dir.clone())
+                                } else {
+                                    dir.clone()
+                                };
 
                                 let child = tokio::process::Command::new("claude")
                                     .arg("-p")
@@ -260,32 +292,65 @@ pub async fn run_poller(
                                         match tokio::time::timeout(
                                             std::time::Duration::from_secs(600),
                                             child.wait_with_output(),
-                                        ).await {
+                                        )
+                                        .await
+                                        {
                                             Ok(Ok(output)) => {
-                                                let stdout = String::from_utf8_lossy(&output.stdout);
+                                                let stdout =
+                                                    String::from_utf8_lossy(&output.stdout);
                                                 let summary = if stdout.len() > 500 {
                                                     format!("{}...", &stdout[..500])
                                                 } else {
                                                     stdout.trim().to_string()
                                                 };
-                                                let status = if output.status.success() { "completed" } else { "failed" };
+                                                let status = if output.status.success() {
+                                                    "completed"
+                                                } else {
+                                                    "failed"
+                                                };
                                                 let msg = if summary.is_empty() {
                                                     format!("Session '{}' {}.", name_clone, status)
                                                 } else {
-                                                    format!("Session '{}' {}.\n\n{}", name_clone, status, summary)
+                                                    format!(
+                                                        "Session '{}' {}.\n\n{}",
+                                                        name_clone, status, summary
+                                                    )
                                                 };
-                                                let _ = client_clone.chunk_and_send(chat_id, &msg).await;
+                                                let _ = client_clone
+                                                    .chunk_and_send(chat_id, &msg)
+                                                    .await;
                                             }
                                             Ok(Err(e)) => {
-                                                let _ = client_clone.send_message(chat_id, &format!("Session '{}' error: {}", name_clone, e)).await;
+                                                let _ = client_clone
+                                                    .send_message(
+                                                        chat_id,
+                                                        &format!(
+                                                            "Session '{}' error: {}",
+                                                            name_clone, e
+                                                        ),
+                                                    )
+                                                    .await;
                                             }
                                             Err(_) => {
-                                                let _ = client_clone.send_message(chat_id, &format!("Session '{}' timed out (10 min).", name_clone)).await;
+                                                let _ = client_clone
+                                                    .send_message(
+                                                        chat_id,
+                                                        &format!(
+                                                            "Session '{}' timed out (10 min).",
+                                                            name_clone
+                                                        ),
+                                                    )
+                                                    .await;
                                             }
                                         }
                                     }
                                     Err(e) => {
-                                        let _ = client_clone.send_message(chat_id, &format!("Failed to start Claude: {}", e)).await;
+                                        let _ = client_clone
+                                            .send_message(
+                                                chat_id,
+                                                &format!("Failed to start Claude: {}", e),
+                                            )
+                                            .await;
                                     }
                                 }
                             });
@@ -297,28 +362,48 @@ pub async fn run_poller(
                         let plist = home.join("Library/LaunchAgents/com.homard.daemon.plist");
                         if plist.exists() {
                             let _ = std::process::Command::new("launchctl")
-                                .args(["bootout", &format!("gui/{}", unsafe { libc::getuid() }), &plist.to_string_lossy()])
+                                .args([
+                                    "bootout",
+                                    &format!("gui/{}", unsafe { libc::getuid() }),
+                                    &plist.to_string_lossy(),
+                                ])
                                 .output();
                             let _ = std::fs::remove_file(&plist);
-                            let _ = client.send_message(chat_id, "Server mode OFF. Daemon will stop after current session ends.").await;
+                            let _ = client
+                                .send_message(
+                                    chat_id,
+                                    "Server mode OFF. Daemon will stop after current session ends.",
+                                )
+                                .await;
                         } else {
-                            let _ = client.send_message(chat_id, "Server mode is already off.").await;
+                            let _ = client
+                                .send_message(chat_id, "Server mode is already off.")
+                                .await;
                         }
                     }
                     Some(Command::ServerOn) if is_allowed => {
                         let _ = client.send_message(chat_id, "Use `homard install` from the CLI or the tray app to enable server mode.").await;
                     }
                     Some(_) if !is_allowed => {
-                        let _ = client.send_message(chat_id, "Send /start to connect with Homard.").await;
+                        let _ = client
+                            .send_message(chat_id, "Send /start to connect with Homard.")
+                            .await;
                     }
                     None if !is_allowed => {
-                        let _ = client.send_message(chat_id, "Send /start to connect.").await;
+                        let _ = client
+                            .send_message(chat_id, "Send /start to connect.")
+                            .await;
                     }
                     None if is_allowed => {
                         // Route through agent loop (spawned concurrently to avoid blocking the poller)
                         let channel = format!("telegram_{}", chat_id);
                         // Send typing indicator
-                        let _ = bot.send_chat_action(teloxide::types::ChatId(chat_id), teloxide::types::ChatAction::Typing).await;
+                        let _ = bot
+                            .send_chat_action(
+                                teloxide::types::ChatId(chat_id),
+                                teloxide::types::ChatAction::Typing,
+                            )
+                            .await;
 
                         let agent_clone = agent.clone();
                         let client_clone = client.clone();
@@ -328,7 +413,9 @@ pub async fn run_poller(
                                     let _ = client_clone.chunk_and_send(chat_id, &response).await;
                                 }
                                 Err(e) => {
-                                    let _ = client_clone.send_message(chat_id, &format!("Error: {}", e)).await;
+                                    let _ = client_clone
+                                        .send_message(chat_id, &format!("Error: {}", e))
+                                        .await;
                                 }
                             }
                         });
@@ -353,7 +440,10 @@ mod tests {
 
     #[test]
     fn test_parse_command_pair() {
-        assert_eq!(parse_command("/pair ABCD1234"), Some(Command::Pair("ABCD1234".to_string())));
+        assert_eq!(
+            parse_command("/pair ABCD1234"),
+            Some(Command::Pair("ABCD1234".to_string()))
+        );
     }
 
     #[test]
@@ -363,7 +453,10 @@ mod tests {
 
     #[test]
     fn test_parse_command_perms() {
-        assert_eq!(parse_command("/perms autonomous"), Some(Command::Perms("autonomous".to_string())));
+        assert_eq!(
+            parse_command("/perms autonomous"),
+            Some(Command::Perms("autonomous".to_string()))
+        );
     }
 
     #[test]

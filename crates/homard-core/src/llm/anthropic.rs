@@ -1,6 +1,6 @@
-use crate::types::*;
-use crate::error::{HomardError, Result};
 use super::client::LlmResponse;
+use crate::error::{HomardError, Result};
+use crate::types::*;
 
 pub struct AnthropicProvider;
 
@@ -16,16 +16,16 @@ impl AnthropicProvider {
         let url = format!("{}/messages", base_url);
 
         // Extract system message
-        let system = messages.iter()
+        let system = messages
+            .iter()
             .find(|m| m.role == "system")
             .map(|m| m.content.clone())
             .unwrap_or_default();
 
         // Convert messages, merging consecutive tool results into single user messages
         let mut msgs: Vec<serde_json::Value> = Vec::new();
-        let non_system: Vec<&ChatMessage> = messages.iter()
-            .filter(|m| m.role != "system")
-            .collect();
+        let non_system: Vec<&ChatMessage> =
+            messages.iter().filter(|m| m.role != "system").collect();
 
         let mut i = 0;
         while i < non_system.len() {
@@ -53,13 +53,16 @@ impl AnthropicProvider {
         }
 
         // Convert tools to Anthropic format
-        let tool_defs: Vec<serde_json::Value> = tools.iter().map(|t| {
-            serde_json::json!({
-                "name": t.name,
-                "description": t.description,
-                "input_schema": t.parameters,
+        let tool_defs: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.parameters,
+                })
             })
-        }).collect();
+            .collect();
 
         let mut body = serde_json::json!({
             "model": model,
@@ -75,27 +78,37 @@ impl AnthropicProvider {
 
         // Determine auth header
         let is_oauth = token.starts_with("sk-ant-oat");
-        let mut req = http.post(&url)
+        let mut req = http
+            .post(&url)
             .header("Content-Type", "application/json")
             .header("anthropic-version", "2023-06-01");
 
         if is_oauth {
-            req = req.header("Authorization", format!("Bearer {}", token))
+            req = req
+                .header("Authorization", format!("Bearer {}", token))
                 .header("anthropic-beta", "oauth-2025-04-20");
         } else {
             req = req.header("x-api-key", token);
         }
 
-        let resp = req.json(&body).send().await
+        let resp = req
+            .json(&body)
+            .send()
+            .await
             .map_err(|e| HomardError::Http(e.to_string()))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let body_text = resp.text().await.unwrap_or_default();
-            return Err(HomardError::Llm(format!("Anthropic HTTP {}: {}", status, body_text)));
+            return Err(HomardError::Llm(format!(
+                "Anthropic HTTP {}: {}",
+                status, body_text
+            )));
         }
 
-        let data: serde_json::Value = resp.json().await
+        let data: serde_json::Value = resp
+            .json()
+            .await
             .map_err(|e| HomardError::Http(e.to_string()))?;
 
         Self::parse_response(&data)
@@ -137,7 +150,8 @@ impl AnthropicProvider {
     }
 
     fn parse_response(data: &serde_json::Value) -> Result<LlmResponse> {
-        let content_blocks = data.get("content")
+        let content_blocks = data
+            .get("content")
             .and_then(|c| c.as_array())
             .ok_or_else(|| HomardError::Llm("Invalid Anthropic response".to_string()))?;
 
@@ -152,15 +166,30 @@ impl AnthropicProvider {
                     }
                 }
                 Some("tool_use") => {
-                    let id = block.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
-                    let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                    let id = block
+                        .get("id")
+                        .and_then(|i| i.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let name = block
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let input = block.get("input").cloned().unwrap_or(serde_json::json!({}));
-                    tool_calls.push(ToolCall { id, name, arguments: input });
+                    tool_calls.push(ToolCall {
+                        id,
+                        name,
+                        arguments: input,
+                    });
                 }
                 _ => {}
             }
         }
 
-        Ok(LlmResponse { content, tool_calls })
+        Ok(LlmResponse {
+            content,
+            tool_calls,
+        })
     }
 }

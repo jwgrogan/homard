@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use crate::agent::r#loop::AgentLoop;
 use crate::config::HomardDirs;
@@ -20,7 +20,8 @@ pub async fn run_scheduler(
     info!("Cron scheduler started");
 
     // Track last run times per schedule
-    let mut last_runs: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> = std::collections::HashMap::new();
+    let mut last_runs: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> =
+        std::collections::HashMap::new();
 
     loop {
         if cancel.is_cancelled() {
@@ -58,7 +59,8 @@ pub async fn run_scheduler(
                     };
 
                     // Run through agent loop
-                    let channel = format!("cron_{}", schedule.name.to_lowercase().replace(' ', "_"));
+                    let channel =
+                        format!("cron_{}", schedule.name.to_lowercase().replace(' ', "_"));
                     match agent.run(&channel, &schedule.message, Trigger::Cron).await {
                         Ok((response, _run_id)) => {
                             {
@@ -70,11 +72,18 @@ pub async fn run_scheduler(
                                 if delivery == "telegram" {
                                     if let Some(ref tg) = telegram_client {
                                         // Send to all paired chats
-                                        let config = crate::config::HomardConfig::load_or_default(&dirs.config_path());
+                                        let config = crate::config::HomardConfig::load_or_default(
+                                            &dirs.config_path(),
+                                        );
                                         for chat_id_str in &config.telegram.paired_chat_ids {
                                             if let Ok(chat_id) = chat_id_str.parse::<i64>() {
                                                 let header = format!("[{}] ", schedule.name);
-                                                let _ = tg.chunk_and_send(chat_id, &format!("{}{}", header, response)).await;
+                                                let _ = tg
+                                                    .chunk_and_send(
+                                                        chat_id,
+                                                        &format!("{}{}", header, response),
+                                                    )
+                                                    .await;
                                             }
                                         }
                                     }
@@ -90,10 +99,20 @@ pub async fn run_scheduler(
                             error!("Cron job '{}' failed: {}", schedule.name, e);
                             // Notify via telegram on failure too
                             if let Some(ref tg) = telegram_client {
-                                let config = crate::config::HomardConfig::load_or_default(&dirs.config_path());
+                                let config = crate::config::HomardConfig::load_or_default(
+                                    &dirs.config_path(),
+                                );
                                 for chat_id_str in &config.telegram.paired_chat_ids {
                                     if let Ok(chat_id) = chat_id_str.parse::<i64>() {
-                                        let _ = tg.send_message(chat_id, &format!("Cron job '{}' failed: {}", schedule.name, e)).await;
+                                        let _ = tg
+                                            .send_message(
+                                                chat_id,
+                                                &format!(
+                                                    "Cron job '{}' failed: {}",
+                                                    schedule.name, e
+                                                ),
+                                            )
+                                            .await;
                                     }
                                 }
                             }
@@ -118,7 +137,11 @@ pub async fn run_scheduler(
 
 /// Simple cron check: parse "M H * * *" style expressions
 /// Returns true if the schedule should run now (within the last 60s window)
-fn is_due(cron_expr: &str, last_run: &chrono::DateTime<chrono::Utc>, now: &chrono::DateTime<chrono::Utc>) -> bool {
+fn is_due(
+    cron_expr: &str,
+    last_run: &chrono::DateTime<chrono::Utc>,
+    now: &chrono::DateTime<chrono::Utc>,
+) -> bool {
     // Must have been at least 55 seconds since last run (avoid double-fire)
     if (*now - *last_run).num_seconds() < 55 {
         return false;

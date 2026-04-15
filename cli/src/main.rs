@@ -49,7 +49,16 @@ async fn main() -> anyhow::Result<()> {
 
             // Copy default identity files if not present
             let defaults_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../defaults");
-            let identity_files = ["BOOTSTRAP.md", "SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md", "TOOLS.md", "HEARTBEAT.md", "MEMORY.md"];
+            let identity_files = [
+                "BOOTSTRAP.md",
+                "SOUL.md",
+                "IDENTITY.md",
+                "USER.md",
+                "AGENTS.md",
+                "TOOLS.md",
+                "HEARTBEAT.md",
+                "MEMORY.md",
+            ];
             for filename in &identity_files {
                 let target = dirs.root().join(filename);
                 if !target.exists() {
@@ -62,10 +71,13 @@ async fn main() -> anyhow::Result<()> {
 
             eprintln!("[homard] loading config...");
             let config = homard_core::config::HomardConfig::load_or_default(&dirs.config_path());
-            eprintln!("[homard] config loaded, active_provider={}", config.active_provider);
-            let store = Arc::new(tokio::sync::Mutex::new(
-                homard_core::store::Store::open(&dirs.db_path())?,
-            ));
+            eprintln!(
+                "[homard] config loaded, active_provider={}",
+                config.active_provider
+            );
+            let store = Arc::new(tokio::sync::Mutex::new(homard_core::store::Store::open(
+                &dirs.db_path(),
+            )?));
 
             // Clean up zombie "running" runs from previous daemon crash
             {
@@ -165,17 +177,23 @@ async fn main() -> anyhow::Result<()> {
             }
             {
                 let store_clone = store.clone();
-                tools.register(homard_core::tools::session::list_sessions_schema(), move |args| {
-                    let s = store_clone.clone();
-                    async move { homard_core::tools::session::list(args, s).await }
-                });
+                tools.register(
+                    homard_core::tools::session::list_sessions_schema(),
+                    move |args| {
+                        let s = store_clone.clone();
+                        async move { homard_core::tools::session::list(args, s).await }
+                    },
+                );
             }
             {
                 let store_clone = store.clone();
-                tools.register(homard_core::tools::session::kill_session_schema(), move |args| {
-                    let s = store_clone.clone();
-                    async move { homard_core::tools::session::kill(args, s).await }
-                });
+                tools.register(
+                    homard_core::tools::session::kill_session_schema(),
+                    move |args| {
+                        let s = store_clone.clone();
+                        async move { homard_core::tools::session::kill(args, s).await }
+                    },
+                );
             }
             let tools = Arc::new(tools);
 
@@ -202,7 +220,8 @@ async fn main() -> anyhow::Result<()> {
                 {
                     match homard_core::config::get_telegram_token(&dirs) {
                         Ok(Some(token)) => {
-                            let client = Arc::new(homard_core::telegram::TelegramClient::new(&token));
+                            let client =
+                                Arc::new(homard_core::telegram::TelegramClient::new(&token));
                             let poller_dirs = dirs.clone();
                             let poller_agent = agent.clone();
                             let poller_client = client.clone();
@@ -215,9 +234,15 @@ async fn main() -> anyhow::Result<()> {
 
                             tokio::spawn(async move {
                                 homard_core::telegram::poller::run_poller(
-                                    poller_dirs, poller_agent, poller_client, cancel_clone, poller_stop,
-                                    poller_security, poller_config,
-                                ).await;
+                                    poller_dirs,
+                                    poller_agent,
+                                    poller_client,
+                                    cancel_clone,
+                                    poller_stop,
+                                    poller_security,
+                                    poller_config,
+                                )
+                                .await;
                             });
 
                             Some(client)
@@ -226,7 +251,9 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
                 #[cfg(not(target_os = "macos"))]
-                { None::<Arc<homard_core::telegram::TelegramClient>> }
+                {
+                    None::<Arc<homard_core::telegram::TelegramClient>>
+                }
             };
 
             // Start cron scheduler
@@ -240,18 +267,25 @@ async fn main() -> anyhow::Result<()> {
 
                 tokio::spawn(async move {
                     homard_core::scheduler::cron::run_scheduler(
-                        sched_dirs, sched_agent, sched_store, sched_tg, cancel_clone,
-                    ).await;
+                        sched_dirs,
+                        sched_agent,
+                        sched_store,
+                        sched_tg,
+                        cancel_clone,
+                    )
+                    .await;
                 });
             }
 
             // Graceful shutdown handler
             let shutdown_stop = stop_tx.clone();
             tokio::spawn(async move {
-                let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                    .expect("failed to register SIGTERM handler");
-                let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
-                    .expect("failed to register SIGINT handler");
+                let mut sigterm =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                        .expect("failed to register SIGTERM handler");
+                let mut sigint =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+                        .expect("failed to register SIGINT handler");
 
                 tokio::select! {
                     _ = sigterm.recv() => {
@@ -264,7 +298,9 @@ async fn main() -> anyhow::Result<()> {
 
                 // Signal agent loop to stop
                 let _ = shutdown_stop.send(true);
-                tracing::info!("Shutdown signal sent. Daemon will stop after current work completes.");
+                tracing::info!(
+                    "Shutdown signal sent. Daemon will stop after current work completes."
+                );
             });
 
             // Create API state
@@ -300,7 +336,8 @@ async fn main() -> anyhow::Result<()> {
 
             // Start API server
             eprintln!("[homard] starting API server on :17700...");
-            homard_core::api::serve(api_state, 17700).await
+            homard_core::api::serve(api_state, 17700)
+                .await
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
         }
         Commands::Chat { message } => {
@@ -346,17 +383,12 @@ async fn main() -> anyhow::Result<()> {
                     {
                         Ok(resp) => {
                             let data: serde_json::Value = resp.json().await?;
-                            if let Some(response) =
-                                data.get("response").and_then(|r| r.as_str())
-                            {
+                            if let Some(response) = data.get("response").and_then(|r| r.as_str()) {
                                 println!("\n{}\n", response);
                             }
                         }
                         Err(e) => {
-                            eprintln!(
-                                "Error: {}. Is the daemon running? (homard serve)",
-                                e
-                            );
+                            eprintln!("Error: {}. Is the daemon running? (homard serve)", e);
                         }
                     }
                 }
@@ -481,19 +513,30 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn setup_wizard() -> anyhow::Result<()> {
-    use std::io::{self, Write, BufRead};
+    use std::io::{self, BufRead, Write};
 
     let dirs = homard_core::config::HomardDirs::default_path();
     dirs.ensure_all()?;
 
     // Copy defaults
     let defaults_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../defaults");
-    let identity_files = ["BOOTSTRAP.md", "SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md", "TOOLS.md", "HEARTBEAT.md", "MEMORY.md"];
+    let identity_files = [
+        "BOOTSTRAP.md",
+        "SOUL.md",
+        "IDENTITY.md",
+        "USER.md",
+        "AGENTS.md",
+        "TOOLS.md",
+        "HEARTBEAT.md",
+        "MEMORY.md",
+    ];
     for filename in &identity_files {
         let target = dirs.root().join(filename);
         if !target.exists() {
             let source = defaults_dir.join(filename);
-            if source.exists() { let _ = std::fs::copy(&source, &target); }
+            if source.exists() {
+                let _ = std::fs::copy(&source, &target);
+            }
         }
     }
 
@@ -508,10 +551,32 @@ async fn setup_wizard() -> anyhow::Result<()> {
     // Step 1: Provider
     println!("  1. Choose your AI provider:");
     println!();
-    let has_codex = std::process::Command::new("which").arg("codex").output().map(|o| o.status.success()).unwrap_or(false);
-    let has_claude = std::process::Command::new("which").arg("claude").output().map(|o| o.status.success()).unwrap_or(false);
-    println!("     [1] Codex CLI {}  (ChatGPT Plus/Pro)", if has_codex { "✓ installed" } else { "— not installed" });
-    println!("     [2] Claude CLI {} (Claude Pro/Max)", if has_claude { "✓ installed" } else { "— not installed" });
+    let has_codex = std::process::Command::new("which")
+        .arg("codex")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    let has_claude = std::process::Command::new("which")
+        .arg("claude")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    println!(
+        "     [1] Codex CLI {}  (ChatGPT Plus/Pro)",
+        if has_codex {
+            "✓ installed"
+        } else {
+            "— not installed"
+        }
+    );
+    println!(
+        "     [2] Claude CLI {} (Claude Pro/Max)",
+        if has_claude {
+            "✓ installed"
+        } else {
+            "— not installed"
+        }
+    );
     println!("     [3] Both");
     println!();
     print!("  > ");
@@ -555,14 +620,21 @@ async fn setup_wizard() -> anyhow::Result<()> {
                 .status();
             match status {
                 Ok(s) if s.success() => println!("  ✓ Claude CLI installed"),
-                _ => println!("  ✗ Failed — run manually: npm install -g @anthropic-ai/claude-code"),
+                _ => {
+                    println!("  ✗ Failed — run manually: npm install -g @anthropic-ai/claude-code")
+                }
             }
         }
     }
 
     // Login to provider
     if use_codex {
-        let logged_in = std::path::Path::new(&dirs::home_dir().unwrap_or_default().join(".codex/auth.json")).exists();
+        let logged_in = std::path::Path::new(
+            &dirs::home_dir()
+                .unwrap_or_default()
+                .join(".codex/auth.json"),
+        )
+        .exists();
         if !logged_in {
             println!();
             println!("  Log in to Codex (uses your ChatGPT Plus/Pro account):");
@@ -578,10 +650,12 @@ async fn setup_wizard() -> anyhow::Result<()> {
         let status_output = std::process::Command::new("claude")
             .args(["auth", "status"])
             .output();
-        let logged_in = status_output.map(|o| {
-            let text = String::from_utf8_lossy(&o.stdout);
-            text.contains("loggedIn\": true") || text.contains("\"loggedIn\":true")
-        }).unwrap_or(false);
+        let logged_in = status_output
+            .map(|o| {
+                let text = String::from_utf8_lossy(&o.stdout);
+                text.contains("loggedIn\": true") || text.contains("\"loggedIn\":true")
+            })
+            .unwrap_or(false);
 
         if !logged_in {
             println!("  Log in to Claude (uses your Claude Pro/Max account):");
@@ -594,22 +668,36 @@ async fn setup_wizard() -> anyhow::Result<()> {
     // Save provider config
     let mut config = homard_core::config::HomardConfig::load_or_default(&dirs.config_path());
     if use_codex {
-        config.providers.insert("codex_cli".to_string(), homard_core::types::ProviderConfig {
-            kind: homard_core::types::ProviderKind::CodexCli,
-            auth_type: "cli".to_string(),
-            model: "gpt-5.4".to_string(),
-            client_id: None, token_keychain_ref: None, api_key_keychain_ref: None, base_url: None,
-        });
+        config.providers.insert(
+            "codex_cli".to_string(),
+            homard_core::types::ProviderConfig {
+                kind: homard_core::types::ProviderKind::CodexCli,
+                auth_type: "cli".to_string(),
+                model: "gpt-5.4".to_string(),
+                client_id: None,
+                token_keychain_ref: None,
+                api_key_keychain_ref: None,
+                base_url: None,
+            },
+        );
         config.active_provider = "codex_cli".to_string();
     }
     if use_claude {
-        config.providers.insert("claude_cli".to_string(), homard_core::types::ProviderConfig {
-            kind: homard_core::types::ProviderKind::ClaudeCli,
-            auth_type: "cli".to_string(),
-            model: "claude-sonnet-4-6".to_string(),
-            client_id: None, token_keychain_ref: None, api_key_keychain_ref: None, base_url: None,
-        });
-        if !use_codex { config.active_provider = "claude_cli".to_string(); }
+        config.providers.insert(
+            "claude_cli".to_string(),
+            homard_core::types::ProviderConfig {
+                kind: homard_core::types::ProviderKind::ClaudeCli,
+                auth_type: "cli".to_string(),
+                model: "claude-sonnet-4-6".to_string(),
+                client_id: None,
+                token_keychain_ref: None,
+                api_key_keychain_ref: None,
+                base_url: None,
+            },
+        );
+        if !use_codex {
+            config.active_provider = "claude_cli".to_string();
+        }
     }
 
     // Step 2: Telegram
@@ -628,7 +716,9 @@ async fn setup_wizard() -> anyhow::Result<()> {
             Ok(bot_name) => {
                 println!("  ✓ Bot @{} connected", bot_name);
                 #[cfg(target_os = "macos")]
-                { let _ = homard_core::config::save_telegram_token(&dirs, &token); }
+                {
+                    let _ = homard_core::config::save_telegram_token(&dirs, &token);
+                }
                 // Reload config after token save
                 config = homard_core::config::HomardConfig::load_or_default(&dirs.config_path());
 
@@ -691,13 +781,21 @@ async fn setup_wizard() -> anyhow::Result<()> {
     <key>StandardErrorPath</key><string>{}/.homard/logs/daemon.stderr.log</string>
     <key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
 </dict>
-</plist>"#, bin_path, home.display(), home.display());
+</plist>"#,
+                bin_path,
+                home.display(),
+                home.display()
+            );
             let plist_path = home.join("Library/LaunchAgents/com.homard.daemon.plist");
             std::fs::create_dir_all(plist_path.parent().unwrap())?;
             std::fs::write(&plist_path, plist)?;
             let uid = unsafe { libc::getuid() };
             let _ = std::process::Command::new("launchctl")
-                .args(["bootstrap", &format!("gui/{}", uid), &plist_path.to_string_lossy()])
+                .args([
+                    "bootstrap",
+                    &format!("gui/{}", uid),
+                    &plist_path.to_string_lossy(),
+                ])
                 .output();
             println!("  ✓ Always-on enabled (launchd)");
         }

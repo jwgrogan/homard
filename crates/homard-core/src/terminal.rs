@@ -100,7 +100,7 @@ fn run_osascript(script: &str) -> Result<()> {
         .map_err(HomardError::Io)?;
     if !output.status.success() {
         return Err(HomardError::Terminal(
-            String::from_utf8_lossy(&output.stderr).trim().to_string()
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
         ));
     }
     Ok(())
