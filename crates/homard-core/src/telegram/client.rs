@@ -51,13 +51,20 @@ pub struct TelegramClient {
 
 impl TelegramClient {
     pub fn new(token: impl Into<String>) -> Self {
-        Self { bot: teloxide::Bot::new(token) }
+        Self {
+            bot: teloxide::Bot::new(token),
+        }
     }
 
     pub async fn verify(&self) -> Result<String> {
-        let me = self.bot.get_me().await
+        let me = self
+            .bot
+            .get_me()
+            .await
             .map_err(|e| HomardError::Telegram(e.to_string()))?;
-        let username = me.user.username
+        let username = me
+            .user
+            .username
             .as_deref()
             .unwrap_or("unknown_bot")
             .to_string();
@@ -65,7 +72,8 @@ impl TelegramClient {
     }
 
     pub async fn send_message(&self, chat_id: i64, text: &str) -> Result<i32> {
-        let msg = self.bot
+        let msg = self
+            .bot
             .send_message(ChatId(chat_id), text)
             .await
             .map_err(|e| HomardError::Telegram(e.to_string()))?;
@@ -93,7 +101,12 @@ impl TelegramClient {
         Ok(message_ids)
     }
 
-    pub async fn send_with_retry(&self, chat_id: i64, text: &str, max_retries: u32) -> Result<Vec<i32>> {
+    pub async fn send_with_retry(
+        &self,
+        chat_id: i64,
+        text: &str,
+        max_retries: u32,
+    ) -> Result<Vec<i32>> {
         let mut last_err = HomardError::Telegram("no attempts".to_string());
         let backoff_secs = [1u64, 2, 4, 8, 16];
         for attempt in 0..=max_retries {
@@ -154,7 +167,9 @@ impl TelegramStreamReporter {
 
     /// Feed a JSONL line from the stream. Extracts text deltas and throttled-edits the message.
     pub async fn on_jsonl_line(&self, line: &str) {
-        let Ok(val) = serde_json::from_str::<serde_json::Value>(line) else { return };
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(line) else {
+            return;
+        };
         if val.get("type").and_then(|t| t.as_str()) == Some("content_block_delta") {
             if let Some(delta_text) = val.pointer("/delta/text").and_then(|t| t.as_str()) {
                 let mut acc = self.accumulated.lock().await;
@@ -175,10 +190,14 @@ impl TelegramStreamReporter {
 
         let text = {
             let acc = self.accumulated.lock().await;
-            if acc.is_empty() { return; }
+            if acc.is_empty() {
+                return;
+            }
             let preview = if acc.len() > 3800 {
                 let mut start = acc.len() - 3800;
-                while !acc.is_char_boundary(start) { start += 1; }
+                while !acc.is_char_boundary(start) {
+                    start += 1;
+                }
                 format!("...{}", &acc[start..])
             } else {
                 acc.clone()
@@ -205,7 +224,9 @@ impl TelegramStreamReporter {
             let acc = self.accumulated.lock().await;
             let summary = if acc.len() > 2000 {
                 let mut start = acc.len() - 2000;
-                while !acc.is_char_boundary(start) { start += 1; }
+                while !acc.is_char_boundary(start) {
+                    start += 1;
+                }
                 format!("...{}", &acc[start..])
             } else {
                 acc.clone()
@@ -213,7 +234,10 @@ impl TelegramStreamReporter {
             if summary.is_empty() {
                 format!("{} {} completed{}", status, job_name, duration_str)
             } else {
-                format!("{} {} completed{}\n\n{}", status, job_name, duration_str, summary)
+                format!(
+                    "{} {} completed{}\n\n{}",
+                    status, job_name, duration_str, summary
+                )
             }
         };
 

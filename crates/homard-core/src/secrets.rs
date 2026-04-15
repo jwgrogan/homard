@@ -5,7 +5,7 @@
 use crate::error::{HomardError, Result};
 
 #[cfg(target_os = "macos")]
-pub use crate::keychain::{store_secret, read_secret, delete_secret};
+pub use crate::keychain::{delete_secret, read_secret, store_secret};
 
 #[cfg(not(target_os = "macos"))]
 mod file_store {
@@ -68,4 +68,4 @@ mod file_store {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub use file_store::{store_secret, read_secret, delete_secret};
+pub use file_store::{delete_secret, read_secret, store_secret};

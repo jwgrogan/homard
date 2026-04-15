@@ -1,11 +1,13 @@
+use crate::error::{HomardError, Result};
+use crate::types::ToolSchema;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use crate::types::ToolSchema;
-use crate::error::{HomardError, Result};
 
-type ToolHandler = Arc<dyn Fn(serde_json::Value) -> Pin<Box<dyn Future<Output = Result<String>> + Send>> + Send + Sync>;
+type ToolHandler = Arc<
+    dyn Fn(serde_json::Value) -> Pin<Box<dyn Future<Output = Result<String>> + Send>> + Send + Sync,
+>;
 
 pub struct ToolRegistry {
     tools: HashMap<String, (ToolSchema, ToolHandler)>,
@@ -13,7 +15,9 @@ pub struct ToolRegistry {
 
 impl ToolRegistry {
     pub fn new() -> Self {
-        Self { tools: HashMap::new() }
+        Self {
+            tools: HashMap::new(),
+        }
     }
 
     pub fn register<F, Fut>(&mut self, schema: ToolSchema, handler: F)
@@ -27,11 +31,16 @@ impl ToolRegistry {
     }
 
     pub fn get_schemas(&self) -> Vec<ToolSchema> {
-        self.tools.values().map(|(schema, _)| schema.clone()).collect()
+        self.tools
+            .values()
+            .map(|(schema, _)| schema.clone())
+            .collect()
     }
 
     pub async fn execute(&self, name: &str, arguments: &serde_json::Value) -> Result<String> {
-        let (_, handler) = self.tools.get(name)
+        let (_, handler) = self
+            .tools
+            .get(name)
             .ok_or_else(|| HomardError::Tool(format!("Unknown tool: {}", name)))?;
         let result = handler(arguments.clone()).await?;
         Ok(Self::truncate_output(name, &result))
@@ -82,7 +91,12 @@ impl ToolRegistry {
                     if output.status.success() {
                         Ok(stdout.to_string())
                     } else {
-                        Ok(format!("Exit code: {}\nStdout: {}\nStderr: {}", output.status.code().unwrap_or(-1), stdout, stderr))
+                        Ok(format!(
+                            "Exit code: {}\nStdout: {}\nStderr: {}",
+                            output.status.code().unwrap_or(-1),
+                            stdout,
+                            stderr
+                        ))
                     }
                 }
             });

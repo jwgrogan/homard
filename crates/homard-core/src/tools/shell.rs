@@ -1,5 +1,5 @@
-use crate::types::ToolSchema;
 use crate::error::{HomardError, Result};
+use crate::types::ToolSchema;
 
 pub fn schema() -> ToolSchema {
     ToolSchema {
@@ -16,7 +16,8 @@ pub fn schema() -> ToolSchema {
 }
 
 pub async fn execute(args: serde_json::Value) -> Result<String> {
-    let command = args.get("command")
+    let command = args
+        .get("command")
         .and_then(|c| c.as_str())
         .ok_or_else(|| HomardError::Tool("Missing 'command' argument".to_string()))?;
 
@@ -30,5 +31,10 @@ pub async fn execute(args: serde_json::Value) -> Result<String> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    Ok(format!("Exit code: {}\n{}{}", output.status.code().unwrap_or(-1), stdout, stderr))
+    Ok(format!(
+        "Exit code: {}\n{}{}",
+        output.status.code().unwrap_or(-1),
+        stdout,
+        stderr
+    ))
 }

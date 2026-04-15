@@ -1,16 +1,19 @@
 pub mod routes;
 
-use std::sync::Arc;
-use axum::{Router, routing::{get, post, delete}};
-use axum::middleware;
-use axum::http::Request;
-use axum::response::Response;
-use tower_http::cors::{CorsLayer, Any};
 use crate::agent::r#loop::AgentLoop;
-use crate::store::Store;
 use crate::config::HomardConfig;
-use crate::security::SecurityManager;
 use crate::llm::oauth::OAuthManager;
+use crate::security::SecurityManager;
+use crate::store::Store;
+use axum::http::Request;
+use axum::middleware;
+use axum::response::Response;
+use axum::{
+    routing::{delete, get, post},
+    Router,
+};
+use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -28,19 +31,25 @@ async fn auth_check(
     req: Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> Response {
-    let auth_header = req.headers().get("authorization")
+    let auth_header = req
+        .headers()
+        .get("authorization")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    let origin = req.headers().get("origin")
+    let origin = req
+        .headers()
+        .get("origin")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
     let is_tauri = origin == "tauri://localhost";
+    let is_local_dev =
+        origin.starts_with("http://localhost:") || origin.starts_with("http://127.0.0.1:");
     let is_auth_callback = req.uri().path().starts_with("/auth/");
     let has_valid_token = !expected.is_empty() && auth_header == format!("Bearer {}", expected);
 
-    if has_valid_token || is_tauri || is_auth_callback || expected.is_empty() {
+    if has_valid_token || is_tauri || is_local_dev || is_auth_callback || expected.is_empty() {
         next.run(req).await
     } else {
         Response::builder()
@@ -60,31 +69,62 @@ pub fn create_router(state: AppState, api_token: String) -> Router {
         .route("/status", get(routes::status))
         .route("/activity", get(routes::activity))
         .route("/cron/health", get(routes::cron_health))
-        .route("/schedules", get(routes::list_schedules).post(routes::create_schedule))
+        .route(
+            "/schedules",
+            get(routes::list_schedules).post(routes::create_schedule),
+        )
         .route("/schedules/{id}", delete(routes::delete_schedule))
-        .route("/settings", get(routes::get_settings).put(routes::update_settings))
-        .route("/settings/permissions", get(routes::get_permissions).put(routes::set_permissions))
+        .route(
+            "/settings",
+            get(routes::get_settings).put(routes::update_settings),
+        )
+        .route("/settings/snapshot", get(routes::settings_snapshot))
+        .route(
+            "/settings/permissions",
+            get(routes::get_permissions).put(routes::set_permissions),
+        )
+        .route(
+            "/providers/{provider}/api-key",
+            post(routes::save_provider_api_key),
+        )
         .route("/auth/{provider}/start", post(routes::start_auth))
         .route("/auth/{provider}/callback", get(routes::auth_callback))
         .route("/telegram/token", post(routes::save_telegram_token))
         .route("/telegram/pair", post(routes::telegram_pair))
         .route("/telegram/status", get(routes::telegram_status))
-        .route("/server", get(routes::get_server_mode).put(routes::set_server_mode))
+        .route(
+            "/server",
+            get(routes::get_server_mode).put(routes::set_server_mode),
+        )
         .route("/sessions", get(routes::list_cli_sessions))
         .route("/sessions/{id}", delete(routes::kill_cli_session))
-        .route("/files/{name}", get(routes::read_file).put(routes::write_file))
+        .route(
+            "/files/{name}",
+            get(routes::read_file).put(routes::write_file),
+        )
         .layer(middleware::from_fn(move |req, next| {
             let t = token.clone();
             auth_check(t, req, next)
         }))
-        .layer(CorsLayer::new()
-            .allow_origin(["tauri://localhost".parse().unwrap(), "http://localhost:5173".parse().unwrap()])
-            .allow_methods(Any)
-            .allow_headers(Any))
+        .layer(
+            CorsLayer::new()
+                .allow_origin([
+                    "tauri://localhost".parse().unwrap(),
+                    "http://localhost:5173".parse().unwrap(),
+                    "http://127.0.0.1:5173".parse().unwrap(),
+                    "http://localhost:4173".parse().unwrap(),
+                    "http://127.0.0.1:4173".parse().unwrap(),
+                ])
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
         .with_state(state)
 }
 
-pub async fn serve(state: AppState, port: u16) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn serve(
+    state: AppState,
+    port: u16,
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Generate API auth token
     let token: String = {
         use rand::Rng;
