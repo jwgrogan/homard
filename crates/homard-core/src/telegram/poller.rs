@@ -38,6 +38,9 @@ pub fn parse_command(text: &str) -> Option<Command> {
     if text.starts_with("/claude ") {
         return Some(Command::Claude(text[8..].trim().to_string()));
     }
+    if text == "/claude" {
+        return Some(Command::Claude(String::new()));
+    }
     if text == "/server off" { return Some(Command::ServerOff); }
     if text == "/server on" { return Some(Command::ServerOn); }
     None
@@ -349,6 +352,13 @@ mod tests {
     #[test]
     fn test_parse_command_status() {
         assert_eq!(parse_command("/status"), Some(Command::Status));
+    }
+
+    #[test]
+    fn test_parse_command_claude() {
+        assert_eq!(parse_command("/claude"), Some(Command::Claude(String::new())));
+        assert_eq!(parse_command("/claude  "), Some(Command::Claude(String::new())));
+        assert_eq!(parse_command("/claude fix tests"), Some(Command::Claude("fix tests".to_string())));
     }
 
     #[test]
