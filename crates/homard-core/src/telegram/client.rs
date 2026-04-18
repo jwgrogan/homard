@@ -17,18 +17,19 @@ pub fn chunk_text(text: &str, max_len: usize) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut remaining = text;
     while remaining.len() > max_len {
+        // Safe boundary for searching within max_len
+        let mut search_end = max_len;
+        while !remaining.is_char_boundary(search_end) {
+            search_end -= 1;
+        }
+
         // Find split point: newline > space > char boundary
-        let split_at = if let Some(pos) = remaining[..max_len].rfind('\n') {
+        let split_at = if let Some(pos) = remaining[..search_end].rfind('\n') {
             pos + 1
-        } else if let Some(pos) = remaining[..max_len].rfind(' ') {
+        } else if let Some(pos) = remaining[..search_end].rfind(' ') {
             pos + 1
         } else {
-            // Hard split: find largest char boundary at or before max_len
-            let mut boundary = max_len;
-            while !remaining.is_char_boundary(boundary) {
-                boundary -= 1;
-            }
-            boundary
+            search_end
         };
 
         // Guard: if split_at == 0 we'd loop forever (shouldn't happen with valid UTF-8 + max_len > 0)
@@ -299,5 +300,18 @@ mod tests {
         for chunk in &chunks {
             assert!(std::str::from_utf8(chunk.as_bytes()).is_ok());
         }
+    }
+
+    #[test]
+    fn test_chunk_text_regression_panic_on_boundary() {
+        // Emoji "🎉" is 4 bytes: [240, 159, 142, 137]
+        // "a".repeat(3998) uses 3998 bytes.
+        // If we add "🎉", it starts at byte 3998 and ends at byte 4002.
+        // Byte 4000 is in the middle of the emoji.
+        let text = "a".repeat(3998) + "🎉";
+        let chunks = chunk_text(&text, 4000);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0], "a".repeat(3998));
+        assert_eq!(chunks[1], "🎉");
     }
 }
