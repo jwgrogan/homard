@@ -17,18 +17,19 @@ pub fn chunk_text(text: &str, max_len: usize) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut remaining = text;
     while remaining.len() > max_len {
+        // Find largest char boundary at or before max_len to avoid panics when slicing
+        let mut limit = max_len;
+        while !remaining.is_char_boundary(limit) {
+            limit -= 1;
+        }
+
         // Find split point: newline > space > char boundary
-        let split_at = if let Some(pos) = remaining[..max_len].rfind('\n') {
+        let split_at = if let Some(pos) = remaining[..limit].rfind('\n') {
             pos + 1
-        } else if let Some(pos) = remaining[..max_len].rfind(' ') {
+        } else if let Some(pos) = remaining[..limit].rfind(' ') {
             pos + 1
         } else {
-            // Hard split: find largest char boundary at or before max_len
-            let mut boundary = max_len;
-            while !remaining.is_char_boundary(boundary) {
-                boundary -= 1;
-            }
-            boundary
+            limit
         };
 
         // Guard: if split_at == 0 we'd loop forever (shouldn't happen with valid UTF-8 + max_len > 0)
@@ -299,5 +300,16 @@ mod tests {
         for chunk in &chunks {
             assert!(std::str::from_utf8(chunk.as_bytes()).is_ok());
         }
+    }
+
+    #[test]
+    fn test_chunk_text_unaligned_multibyte_panic() {
+        // \u{0800} is 3 bytes. 1333 * 3 = 3999.
+        // 1334 * 3 = 4002.
+        // If max_len is 4000, remaining[..4000] will panic if 4000 is not a boundary.
+        let char_3b = "\u{0800}";
+        let text = char_3b.repeat(2000);
+        let chunks = chunk_text(&text, 4000);
+        assert!(chunks.len() >= 2);
     }
 }
