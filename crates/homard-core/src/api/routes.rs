@@ -185,6 +185,91 @@ pub async fn start_auth(
     Ok(Json(serde_json::json!({ "auth_url": auth_url })))
 }
 
+pub async fn provider_availability() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "codex_cli": crate::llm::cli_backend::is_cli_available("codex"),
+        "claude_cli": crate::llm::cli_backend::is_cli_available("claude"),
+        "openai": true,
+        "anthropic": true,
+        "openrouter": true,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct ProviderApiKeyRequest {
+    pub api_key: String,
+    pub model: Option<String>,
+    pub activate: Option<bool>,
+}
+
+fn provider_kind_from_name(name: &str) -> Option<crate::types::ProviderKind> {
+    match name {
+        "openrouter" => Some(crate::types::ProviderKind::Openrouter),
+        "openai" => Some(crate::types::ProviderKind::Openai),
+        "anthropic" => Some(crate::types::ProviderKind::Anthropic),
+        "codex_cli" => Some(crate::types::ProviderKind::CodexCli),
+        "claude_cli" => Some(crate::types::ProviderKind::ClaudeCli),
+        _ => None,
+    }
+}
+
+fn default_model_for_provider(name: &str) -> &'static str {
+    match name {
+        "openrouter" => "anthropic/claude-sonnet-4-6",
+        "openai" => "gpt-5.4",
+        "anthropic" => "claude-sonnet-4-6",
+        "codex_cli" => "gpt-5.4",
+        "claude_cli" => "claude-sonnet-4-6",
+        _ => "gpt-5.4",
+    }
+}
+
+pub async fn save_provider_api_key(
+    State(state): State<AppState>,
+    Path(provider): Path<String>,
+    Json(req): Json<ProviderApiKeyRequest>,
+) -> std::result::Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if req.api_key.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "API key is required".to_string()));
+    }
+
+    let kind = provider_kind_from_name(&provider)
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Unknown provider".to_string()))?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let service = format!("homard.{}", provider);
+        crate::keychain::store_secret(&service, "api_key", req.api_key.trim())
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        return Err((StatusCode::NOT_IMPLEMENTED, "API key storage is only supported on macOS".to_string()));
+    }
+
+    let dirs = crate::config::HomardDirs::default_path();
+    let mut config = state.config.write().await;
+    config.providers.insert(provider.clone(), crate::types::ProviderConfig {
+        kind,
+        auth_type: "api_key".to_string(),
+        client_id: None,
+        token_keychain_ref: None,
+        api_key_keychain_ref: Some(format!("homard.{}.api_key", provider)),
+        model: req.model.unwrap_or_else(|| default_model_for_provider(&provider).to_string()),
+        base_url: None,
+    });
+    if req.activate.unwrap_or(true) {
+        config.active_provider = provider.clone();
+    }
+    config.save(&dirs.config_path())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(serde_json::json!({
+        "status": "connected",
+        "message": format!("{} is ready to use.", provider),
+    })))
+}
+
 #[derive(Deserialize)]
 pub struct AuthCallbackQuery {
     pub code: String,

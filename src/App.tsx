@@ -35,10 +35,10 @@ export default function App() {
         const nameMatch = text.match(/[Nn]ame:\s*(.+)/);
         const name = nameMatch ? nameMatch[1].trim().split(" ")[0] : null;
         setUserName(name);
-        document.title = name && name.length > 1 ? `Homard · ${name}` : "Homard";
       } catch {
-        document.title = "Homard";
+        setUserName(null);
       }
+      document.title = "Homard - your personal crustacean 🦞";
     })();
   }, []);
 
@@ -49,8 +49,10 @@ export default function App() {
       <header className="tray-header">
         <div className="tray-header__copy">
           <div className="topbar__eyebrow">Homard</div>
-          <h1 className="tray-header__title">{userName ? `${userName}'s assistant` : "Personal assistant"}</h1>
-          <p className="tray-header__subtitle">{activeTab.description}</p>
+          <h1 className="tray-header__title">Homard - your personal crustacean 🦞</h1>
+          <p className="tray-header__subtitle">
+            {userName ? `${userName} · ${activeTab.description}` : activeTab.description}
+          </p>
         </div>
         <span className={`status-chip ${daemonOnline ? "is-online" : "is-offline"}`}>
           <span className={`status-dot ${daemonOnline ? "is-online" : "is-offline"}`} />

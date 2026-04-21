@@ -25,6 +25,10 @@ fn find_cli(binary: &str) -> Option<&'static str> {
     }).as_deref()
 }
 
+pub fn is_cli_available(binary: &str) -> bool {
+    find_cli(binary).is_some()
+}
+
 /// Strip ANSI escape codes and control characters from CLI output
 fn strip_ansi(s: &str) -> String {
     let mut result = String::with_capacity(s.len());

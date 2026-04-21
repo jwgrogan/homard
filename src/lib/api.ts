@@ -2,7 +2,7 @@ const BASE = "http://localhost:17700";
 
 async function headers(): Promise<HeadersInit> {
   // Auth is handled by origin-based check in the daemon middleware.
-  // tauri://localhost and http://localhost:5173 are allowed origins.
+  // The Tauri webview and local Vite dev origins are allowed directly.
   // External API consumers use the bearer token from ~/.homard/api.token.
   return { "Content-Type": "application/json" };
 }
@@ -46,6 +46,8 @@ export interface DaemonStatus {
   telegram_connected: boolean;
   current_run?: string;
 }
+
+export type ProviderAvailability = Record<string, boolean>;
 
 export async function sendChat(message: string, channel = "chat"): Promise<{ response: string }> {
   const res = await apiFetch("/chat", {
@@ -110,6 +112,29 @@ export async function startAuth(provider: string): Promise<{ auth_url: string; v
   const res = await apiFetch(`/auth/${provider}/start`, { method: "POST" });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
+}
+
+export async function saveProviderApiKey(
+  provider: string,
+  apiKey: string,
+  model: string,
+): Promise<{ status: string; message: string }> {
+  const res = await apiFetch(`/providers/${provider}/api-key`, {
+    method: "POST",
+    body: JSON.stringify({ api_key: apiKey, model, activate: true }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function getProviderAvailability(): Promise<ProviderAvailability> {
+  try {
+    const res = await apiFetch("/providers/availability");
+    if (!res.ok) return {};
+    return res.json();
+  } catch {
+    return {};
+  }
 }
 
 export async function generatePairingCode(): Promise<string> {

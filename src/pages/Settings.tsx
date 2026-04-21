@@ -4,13 +4,17 @@ import {
   apiFetch,
   getStatus,
   getTelegramStatus,
+  getProviderAvailability,
   readFile,
+  saveProviderApiKey,
   setPermissions,
   startAuth,
   stopRun,
   writeFile,
   type DaemonStatus,
 } from "../lib/api";
+
+type SettingsTab = "overview" | "providers" | "controls" | "telegram" | "identity";
 
 const providerModels: Record<string, string[]> = {
   codex_cli: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"],
@@ -20,7 +24,7 @@ const providerModels: Record<string, string[]> = {
   openrouter: ["anthropic/claude-sonnet-4-6", "openai/gpt-5.4"],
 };
 
-function Section({
+function SettingsSection({
   label,
   title,
   body,
@@ -48,6 +52,7 @@ function ProviderRow({
   status,
   connected,
   currentModel,
+  available,
   onRefresh,
   onMessage,
 }: {
@@ -55,6 +60,7 @@ function ProviderRow({
   status: DaemonStatus | null;
   connected: boolean;
   currentModel?: string;
+  available?: boolean;
   onRefresh: () => void;
   onMessage: (message: string) => void;
 }) {
@@ -73,19 +79,26 @@ function ProviderRow({
     name === "openrouter" ? "OpenRouter" :
     "Anthropic";
   const meta =
-    name === "codex_cli" ? "Uses your local Codex login." :
-    name === "claude_cli" ? "Uses your local Claude login." :
+    name === "codex_cli" ? "Uses your Codex login." :
+    name === "claude_cli" ? "Uses your Claude login." :
     name === "openai" ? "Connects through browser OAuth." :
     name === "anthropic" ? "Connects through browser OAuth." :
-    "Stores one API key and routes requests through OpenRouter.";
+    "Stores one API key for routed access.";
+  const availabilityNote = available === false
+    ? (isCli ? `${label} is not installed on this Mac.` : `${label} is unavailable.`)
+    : null;
 
   const handleConnect = async () => {
+    if (available === false) {
+      onMessage(`${label} is not available on this Mac.`);
+      return;
+    }
     setConnecting(true);
     try {
       if (isOAuth && !connected) {
         const { auth_url } = await startAuth(name);
         await open(auth_url);
-        onMessage(`Finish ${label} sign-in in your browser. Homard will pick it up automatically.`);
+        onMessage(`Finish ${label} sign-in in your browser. Homard will detect it automatically.`);
         window.setTimeout(onRefresh, 2500);
         return;
       }
@@ -95,16 +108,15 @@ function ProviderRow({
       const providers = cfg.providers || {};
 
       if (isCli) {
-        providers[name] = { kind: name, auth_type: "cli", model: model || providerModels[name]?.[0] || "" };
+        providers[name] = { kind: name, auth_type: "cli", model };
       } else if (isApiKey && apiKey.trim()) {
-        providers[name] = {
-          kind: name,
-          auth_type: "api_key",
-          model: model || providerModels[name]?.[0] || "",
-          api_key_keychain_ref: `homard.${name}.api_key`,
-        };
-      } else if (isOAuth && connected) {
-        providers[name] = { ...providers[name], model: model || providerModels[name]?.[0] || "" };
+        const result = await saveProviderApiKey(name, apiKey.trim(), model);
+        setApiKey("");
+        onRefresh();
+        onMessage(result.message || `${label} saved.`);
+        return;
+      } else if (connected) {
+        providers[name] = { ...providers[name], model };
       }
 
       await apiFetch("/settings", {
@@ -123,7 +135,7 @@ function ProviderRow({
   };
 
   return (
-    <div className="row-item grid-cols-[minmax(0,1fr)_auto]">
+    <div className="row-item grid-cols-[minmax(0,1fr)]">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <div className="text-[14px] font-medium">{label}</div>
@@ -134,14 +146,17 @@ function ProviderRow({
           )}
         </div>
         <div className="mt-1 text-[12px]" style={{ color: "var(--ink-soft)" }}>{meta}</div>
-        <div className="mt-3 flex gap-2">
+        {availabilityNote && (
+          <div className="mt-2 text-[12px]" style={{ color: "var(--error)" }}>{availabilityNote}</div>
+        )}
+        <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
           <select value={model} onChange={(e) => setModel(e.target.value)} className="field">
             {(providerModels[name] || []).map((item) => (
               <option key={item} value={item}>{item}</option>
             ))}
           </select>
-          <button onClick={handleConnect} disabled={connecting || (isApiKey && !connected && !apiKey.trim())} className="cta disabled:opacity-40">
-            {connecting ? "Working..." : connected ? (isActive ? "Active" : "Use") : isOAuth ? "Connect" : isCli ? "Use" : "Save"}
+          <button onClick={handleConnect} disabled={connecting || available === false || (isApiKey && !connected && !apiKey.trim())} className="cta disabled:opacity-40">
+            {connecting ? "Working..." : available === false ? "Unavailable" : connected ? (isActive ? "Active" : "Use") : isOAuth ? "Connect" : isCli ? "Use" : "Save"}
           </button>
         </div>
         {isApiKey && !connected && (
@@ -285,48 +300,52 @@ function TelegramSection({ onMessage }: { onMessage: (message: string) => void }
         </>
       )}
 
-      <div className="settings-grid">
-        <div className="text-[12px] font-medium">Allowed usernames</div>
-        <div className="flex gap-2">
-          <input
-            value={newUsername}
-            onChange={(e) => setNewUsername(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && newUsername.trim()) {
-                persistUsernames([...usernames, newUsername.trim().replace(/^@/, "")]);
-                setNewUsername("");
-              }
-            }}
-            placeholder="@username"
-            className="field"
-          />
-          <button
-            onClick={() => {
-              if (!newUsername.trim()) return;
-              persistUsernames([...usernames, newUsername.trim().replace(/^@/, "")]);
-              setNewUsername("");
-            }}
-            disabled={!newUsername.trim()}
-            className="secondary-cta disabled:opacity-40"
-          >
-            Add
-          </button>
-        </div>
-        {usernames.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {usernames.map((item) => (
-              <span key={item} className="pill">
-                <span>@{item}</span>
-                <button onClick={() => persistUsernames(usernames.filter((name) => name !== item))} style={{ color: "var(--ink-soft)" }}>
-                  Remove
-                </button>
-              </span>
-            ))}
+      <details className="disclosure" open>
+        <summary>Allowed usernames</summary>
+        <div className="disclosure__body">
+          <div className="settings-grid">
+            <div className="flex gap-2">
+              <input
+                value={newUsername}
+                onChange={(e) => setNewUsername(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newUsername.trim()) {
+                    persistUsernames([...usernames, newUsername.trim().replace(/^@/, "")]);
+                    setNewUsername("");
+                  }
+                }}
+                placeholder="@username"
+                className="field"
+              />
+              <button
+                onClick={() => {
+                  if (!newUsername.trim()) return;
+                  persistUsernames([...usernames, newUsername.trim().replace(/^@/, "")]);
+                  setNewUsername("");
+                }}
+                disabled={!newUsername.trim()}
+                className="secondary-cta disabled:opacity-40"
+              >
+                Add
+              </button>
+            </div>
+            {usernames.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {usernames.map((item) => (
+                  <span key={item} className="pill">
+                    <span>@{item}</span>
+                    <button onClick={() => persistUsernames(usernames.filter((name) => name !== item))} style={{ color: "var(--ink-soft)" }}>
+                      Remove
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="section-meta">Messages are ignored until at least one username is allowed.</p>
+            )}
           </div>
-        ) : (
-          <p className="section-meta">Messages from Telegram are ignored until at least one username is allowed.</p>
-        )}
-      </div>
+        </div>
+      </details>
     </div>
   );
 }
@@ -427,7 +446,7 @@ function IdentitySection() {
         <div className="text-[12px] font-medium">Assistant</div>
         <input value={botName} onChange={(e) => setBotName(e.target.value)} placeholder="Name" className="field" />
         <input value={botTagline} onChange={(e) => setBotTagline(e.target.value)} placeholder="Tagline" className="field" />
-        <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>Symbol on file: {botEmoji}</div>
+        <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>Symbol: {botEmoji}</div>
         <div className="flex justify-end">
           <button
             onClick={async () => {
@@ -485,12 +504,7 @@ function IdentitySection() {
                 <option key={item} value={item}>{item}</option>
               ))}
             </select>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className="field is-mono resize-none"
-              rows={14}
-            />
+            <textarea value={content} onChange={(e) => setContent(e.target.value)} className="field is-mono resize-none" rows={14} />
             <div className="flex justify-end">
               <button
                 onClick={async () => {
@@ -512,14 +526,17 @@ function IdentitySection() {
 }
 
 export default function Settings() {
+  const [tab, setTab] = useState<SettingsTab>("overview");
   const [status, setStatus] = useState<DaemonStatus | null>(null);
   const [connectedProviders, setConnectedProviders] = useState<Record<string, { model?: string }>>({});
+  const [availability, setAvailability] = useState<Record<string, boolean>>({});
   const [bannerMessage, setBannerMessage] = useState("");
   const [stoppingRun, setStoppingRun] = useState(false);
 
   const refreshStatus = async () => {
     const next = await getStatus();
     setStatus(next);
+    setAvailability(await getProviderAvailability());
     try {
       const res = await apiFetch("/settings");
       const cfg = await res.json();
@@ -541,51 +558,35 @@ export default function Settings() {
     return () => clearInterval(interval);
   }, []);
 
+  const tabs: { id: SettingsTab; label: string }[] = [
+    { id: "overview", label: "Overview" },
+    { id: "providers", label: "Providers" },
+    { id: "controls", label: "Controls" },
+    { id: "telegram", label: "Telegram" },
+    { id: "identity", label: "Identity" },
+  ];
+
   return (
     <div className="panel h-full">
       <div className="panel-header">
         <div>
           <div className="subtle-label">Settings</div>
           <h2 className="section-title">System, providers, and files</h2>
-          <p className="section-meta">One scroll view. Advanced controls stay available, but no longer drive the structure.</p>
+          <p className="section-meta">Clearer sections, less sprawl, and model switching kept where it belongs.</p>
+        </div>
+      </div>
+
+      <div className="px-4 pt-3">
+        <div className="segmented">
+          {tabs.map((item) => (
+            <button key={item.id} onClick={() => setTab(item.id)} className={tab === item.id ? "is-active" : ""}>
+              {item.label}
+            </button>
+          ))}
         </div>
       </div>
 
       <div className="settings-stack">
-        <section className="settings-summary">
-          <div className="settings-summary__item">
-            <div className="subtle-label">Provider</div>
-            <div className="mt-1 text-[15px] font-semibold">{status?.active_provider ?? "Not configured"}</div>
-            <div className="text-[12px]" style={{ color: "var(--ink-soft)" }}>{status?.active_model ?? "No active model"}</div>
-          </div>
-          <div className="settings-summary__item">
-            <div className="subtle-label">Permissions</div>
-            <div className="mt-1 text-[15px] font-semibold">{status?.permission_level ?? "Unknown"}</div>
-            <div className="text-[12px]" style={{ color: "var(--ink-soft)" }}>{status?.telegram_connected ? "Telegram connected" : "Telegram idle"}</div>
-          </div>
-          <div className="settings-summary__item">
-            <div className="subtle-label">Current run</div>
-            <div className="mt-1 text-[15px] font-semibold">{status?.current_run ?? "None"}</div>
-            <div className="mt-2">
-              <button
-                onClick={async () => {
-                  setStoppingRun(true);
-                  try {
-                    await stopRun();
-                    setBannerMessage("Stop signal sent to the current run.");
-                  } finally {
-                    setStoppingRun(false);
-                  }
-                }}
-                disabled={!status?.current_run || stoppingRun}
-                className="secondary-cta disabled:opacity-40"
-              >
-                {stoppingRun ? "Stopping..." : "Stop run"}
-              </button>
-            </div>
-          </div>
-        </section>
-
         {bannerMessage && (
           <div className="settings-block">
             <div className="settings-block__body">
@@ -594,51 +595,107 @@ export default function Settings() {
           </div>
         )}
 
-        <Section
-          label="Models"
-          title="Providers"
-          body="CLI is the fastest start. OAuth keeps direct vendor accounts clean. OpenRouter stays available for one-key access."
-        >
-          <div className="row-list">
-            <ProviderRow name="codex_cli" status={status} connected={"codex_cli" in connectedProviders} currentModel={connectedProviders["codex_cli"]?.model} onRefresh={refreshStatus} onMessage={setBannerMessage} />
-            <ProviderRow name="claude_cli" status={status} connected={"claude_cli" in connectedProviders} currentModel={connectedProviders["claude_cli"]?.model} onRefresh={refreshStatus} onMessage={setBannerMessage} />
-            <ProviderRow name="openai" status={status} connected={"openai" in connectedProviders} currentModel={connectedProviders["openai"]?.model} onRefresh={refreshStatus} onMessage={setBannerMessage} />
-            <ProviderRow name="anthropic" status={status} connected={"anthropic" in connectedProviders} currentModel={connectedProviders["anthropic"]?.model} onRefresh={refreshStatus} onMessage={setBannerMessage} />
-            <ProviderRow name="openrouter" status={status} connected={"openrouter" in connectedProviders} currentModel={connectedProviders["openrouter"]?.model} onRefresh={refreshStatus} onMessage={setBannerMessage} />
-          </div>
-        </Section>
+        {tab === "overview" && (
+          <>
+            <section className="settings-summary">
+              <div className="settings-summary__item">
+                <div className="subtle-label">Provider</div>
+                <div className="mt-1 text-[15px] font-semibold">{status?.active_provider ?? "Not configured"}</div>
+                <div className="text-[12px]" style={{ color: "var(--ink-soft)" }}>{status?.active_model ?? "No active model"}</div>
+              </div>
+              <div className="settings-summary__item">
+                <div className="subtle-label">Permissions</div>
+                <div className="mt-1 text-[15px] font-semibold">{status?.permission_level ?? "Unknown"}</div>
+                <div className="text-[12px]" style={{ color: "var(--ink-soft)" }}>{status?.telegram_connected ? "Telegram connected" : "Telegram idle"}</div>
+              </div>
+              <div className="settings-summary__item">
+                <div className="subtle-label">Current run</div>
+                <div className="mt-1 text-[15px] font-semibold">{status?.current_run ?? "None"}</div>
+                <div className="mt-2">
+                  <button
+                    onClick={async () => {
+                      setStoppingRun(true);
+                      try {
+                        await stopRun();
+                        setBannerMessage("Stop signal sent to the current run.");
+                      } finally {
+                        setStoppingRun(false);
+                      }
+                    }}
+                    disabled={!status?.current_run || stoppingRun}
+                    className="secondary-cta disabled:opacity-40"
+                  >
+                    {stoppingRun ? "Stopping..." : "Stop run"}
+                  </button>
+                </div>
+              </div>
+            </section>
 
-        <Section
-          label="Safety"
-          title="Permissions"
-          body="These levels are mutually exclusive. The current mode should be obvious at a glance."
-        >
-          <PermissionsSection />
-        </Section>
+            <SettingsSection
+              label="Daemon"
+              title="Background service"
+              body="This answers the only question that matters here: does Homard stay alive when the window closes?"
+            >
+              <DaemonSection onMessage={setBannerMessage} />
+            </SettingsSection>
+          </>
+        )}
 
-        <Section
-          label="Bridge"
-          title="Telegram"
-          body="Pair the bot, then allow only the usernames you trust."
-        >
-          <TelegramSection onMessage={setBannerMessage} />
-        </Section>
+        {tab === "providers" && (
+          <SettingsSection
+            label="Models"
+            title="Providers and model selection"
+            body="Model switching stays explicit here, not hidden behind another control."
+          >
+            <div className="row-list">
+              <ProviderRow name="codex_cli" status={status} connected={"codex_cli" in connectedProviders} currentModel={connectedProviders["codex_cli"]?.model} available={availability["codex_cli"]} onRefresh={refreshStatus} onMessage={setBannerMessage} />
+              <ProviderRow name="claude_cli" status={status} connected={"claude_cli" in connectedProviders} currentModel={connectedProviders["claude_cli"]?.model} available={availability["claude_cli"]} onRefresh={refreshStatus} onMessage={setBannerMessage} />
+              <ProviderRow name="openai" status={status} connected={"openai" in connectedProviders} currentModel={connectedProviders["openai"]?.model} available={availability["openai"]} onRefresh={refreshStatus} onMessage={setBannerMessage} />
+              <ProviderRow name="anthropic" status={status} connected={"anthropic" in connectedProviders} currentModel={connectedProviders["anthropic"]?.model} available={availability["anthropic"]} onRefresh={refreshStatus} onMessage={setBannerMessage} />
+              <ProviderRow name="openrouter" status={status} connected={"openrouter" in connectedProviders} currentModel={connectedProviders["openrouter"]?.model} available={availability["openrouter"]} onRefresh={refreshStatus} onMessage={setBannerMessage} />
+            </div>
+          </SettingsSection>
+        )}
 
-        <Section
-          label="Daemon"
-          title="Background service"
-          body="This answers the only question that matters here: does Homard stay alive when the window closes?"
-        >
-          <DaemonSection onMessage={setBannerMessage} />
-        </Section>
+        {tab === "controls" && (
+          <>
+            <SettingsSection
+              label="Safety"
+              title="Permissions"
+              body="These levels are mutually exclusive. The current mode should be obvious at a glance."
+            >
+              <PermissionsSection />
+            </SettingsSection>
 
-        <Section
-          label="Identity"
-          title="Profile and source files"
-          body="Keep profile data short. Raw file editing stays available, but out of the primary path."
-        >
-          <IdentitySection />
-        </Section>
+            <SettingsSection
+              label="Daemon"
+              title="Background service"
+              body="System controls stay here instead of being mixed into every other area."
+            >
+              <DaemonSection onMessage={setBannerMessage} />
+            </SettingsSection>
+          </>
+        )}
+
+        {tab === "telegram" && (
+          <SettingsSection
+            label="Bridge"
+            title="Telegram"
+            body="Pair the bot, then allow only the usernames you trust."
+          >
+            <TelegramSection onMessage={setBannerMessage} />
+          </SettingsSection>
+        )}
+
+        {tab === "identity" && (
+          <SettingsSection
+            label="Identity"
+            title="Profile and source files"
+            body="Keep the profile simple. Raw file editing is still available, but it no longer crowds core settings."
+          >
+            <IdentitySection />
+          </SettingsSection>
+        )}
       </div>
     </div>
   );

@@ -37,10 +37,11 @@ async fn auth_check(
         .unwrap_or("");
 
     let is_tauri = origin == "tauri://localhost";
+    let is_local_dev = origin.starts_with("http://localhost:") || origin.starts_with("http://127.0.0.1:");
     let is_auth_callback = req.uri().path().starts_with("/auth/");
     let has_valid_token = !expected.is_empty() && auth_header == format!("Bearer {}", expected);
 
-    if has_valid_token || is_tauri || is_auth_callback || expected.is_empty() {
+    if has_valid_token || is_tauri || is_local_dev || is_auth_callback || expected.is_empty() {
         next.run(req).await
     } else {
         Response::builder()
@@ -64,8 +65,10 @@ pub fn create_router(state: AppState, api_token: String) -> Router {
         .route("/schedules/{id}", delete(routes::delete_schedule))
         .route("/settings", get(routes::get_settings).put(routes::update_settings))
         .route("/settings/permissions", get(routes::get_permissions).put(routes::set_permissions))
+        .route("/providers/availability", get(routes::provider_availability))
         .route("/auth/{provider}/start", post(routes::start_auth))
         .route("/auth/{provider}/callback", get(routes::auth_callback))
+        .route("/providers/{provider}/api-key", post(routes::save_provider_api_key))
         .route("/telegram/token", post(routes::save_telegram_token))
         .route("/telegram/pair", post(routes::telegram_pair))
         .route("/telegram/status", get(routes::telegram_status))
@@ -78,7 +81,13 @@ pub fn create_router(state: AppState, api_token: String) -> Router {
             auth_check(t, req, next)
         }))
         .layer(CorsLayer::new()
-            .allow_origin(["tauri://localhost".parse().unwrap(), "http://localhost:5173".parse().unwrap()])
+            .allow_origin([
+                "tauri://localhost".parse().unwrap(),
+                "http://localhost:5173".parse().unwrap(),
+                "http://127.0.0.1:5173".parse().unwrap(),
+                "http://localhost:4173".parse().unwrap(),
+                "http://127.0.0.1:4173".parse().unwrap(),
+            ])
             .allow_methods(Any)
             .allow_headers(Any))
         .with_state(state)

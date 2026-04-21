@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { sendChat, getStatus, apiFetch, type ChatMessage } from "../lib/api";
+import { sendChat, getStatus, apiFetch, getConversation, type ChatMessage } from "../lib/api";
 
 function MessageItem({
   msg,
-  botLabel,
+  botEmoji,
   userInitial,
 }: {
   msg: ChatMessage;
-  botLabel: string;
+  botEmoji: string;
   userInitial: string;
 }) {
   const isUser = msg.role === "user";
@@ -19,7 +19,7 @@ function MessageItem({
   return (
     <div className={`flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
       <div className="pill" style={{ background: isUser ? "rgba(22, 48, 75, 0.06)" : "var(--accent-soft)" }}>
-        <span>{isUser ? userInitial : botLabel}</span>
+        <span>{isUser ? userInitial : botEmoji}</span>
         <span>{isUser ? "You" : "Homard"}</span>
       </div>
       <div
@@ -54,19 +54,27 @@ export default function Chat() {
   const [hasProvider, setHasProvider] = useState<boolean | null>(null);
   const [channel, setChannel] = useState("chat");
   const [channels, setChannels] = useState<string[]>(["chat"]);
-  const [botLabel, setBotLabel] = useState("HM");
+  const [botEmoji, setBotEmoji] = useState("🦞");
   const [userInitial, setUserInitial] = useState("Y");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const syncConversation = async (nextChannel: string) => {
+    try {
+      const nextMessages = await getConversation(nextChannel);
+      setMessages(Array.isArray(nextMessages) ? nextMessages : []);
+    } catch {
+      setMessages([]);
+    }
+  };
 
   useEffect(() => {
     getStatus().then((s) => setHasProvider(s?.active_provider != null));
     apiFetch("/files/IDENTITY.md")
       .then((r) => r.text())
       .then((text) => {
-        const nameMatch = text.match(/name:\s*(.+)/);
-        const value = nameMatch ? nameMatch[1].trim().slice(0, 2).toUpperCase() : "HM";
-        setBotLabel(value);
+        const emojiMatch = text.match(/emoji:\s*(.+)/);
+        setBotEmoji(emojiMatch ? emojiMatch[1].trim() : "🦞");
       })
       .catch(() => {});
     apiFetch("/files/USER.md")
@@ -88,12 +96,7 @@ export default function Chat() {
   }, []);
 
   useEffect(() => {
-    apiFetch(`/conversations/${channel}?limit=50`)
-      .then((r) => r.json())
-      .then((msgs: ChatMessage[]) => {
-        setMessages(Array.isArray(msgs) ? msgs : []);
-      })
-      .catch(() => setMessages([]));
+    syncConversation(channel);
   }, [channel]);
 
   useEffect(() => {
@@ -104,17 +107,10 @@ export default function Chat() {
 
   useEffect(() => {
     const poll = setInterval(() => {
-      apiFetch(`/conversations/${channel}?limit=50`)
-        .then((r) => r.json())
-        .then((msgs: ChatMessage[]) => {
-          if (Array.isArray(msgs) && msgs.length > messages.length) {
-            setMessages(msgs);
-          }
-        })
-        .catch(() => {});
+      syncConversation(channel);
     }, 3000);
     return () => clearInterval(poll);
-  }, [channel, messages.length]);
+  }, [channel]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -126,8 +122,8 @@ export default function Chat() {
     setLoading(true);
 
     try {
-      const { response } = await sendChat(text, channel);
-      setMessages((prev) => [...prev, { role: "assistant", content: response }]);
+      await sendChat(text, channel);
+      await syncConversation(channel);
     } catch (e) {
       setMessages((prev) => [
         ...prev,
@@ -184,12 +180,17 @@ export default function Chat() {
             </div>
           )}
           {messages.map((msg, i) => (
-            <MessageItem key={`${msg.role}-${msg.timestamp || i}`} msg={msg} botLabel={botLabel} userInitial={userInitial} />
+            <MessageItem
+              key={`${msg.role}-${msg.timestamp ?? "no-ts"}-${msg.tool_call_id ?? "no-tool"}-${i}`}
+              msg={msg}
+              botEmoji={botEmoji}
+              userInitial={userInitial}
+            />
           ))}
           {loading && (
             <div className="flex flex-col gap-1 items-start">
               <div className="pill" style={{ background: "var(--accent-soft)" }}>
-                <span>{botLabel}</span>
+                <span>{botEmoji}</span>
                 <span>Homard</span>
               </div>
               <div className="rounded-[18px] border px-4 py-3" style={{ background: "rgba(255,255,255,0.76)", borderColor: "var(--line)" }}>
