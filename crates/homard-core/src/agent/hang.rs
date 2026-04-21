@@ -1,9 +1,9 @@
-use std::time::Duration;
 use crate::types::{PermissionLevel, ToolCall};
+use std::time::Duration;
 
 pub enum HangAction {
-    Pause(String),   // Supervised: pause and ask
-    Alert(String),   // Autonomous: alert but continue
+    Pause(String), // Supervised: pause and ask
+    Alert(String), // Autonomous: alert but continue
 }
 
 pub struct HangDetector {
@@ -19,7 +19,12 @@ impl HangDetector {
         }
     }
 
-    pub fn check(&mut self, iterations: u32, elapsed: Duration, permission_level: &PermissionLevel) -> Option<HangAction> {
+    pub fn check(
+        &mut self,
+        iterations: u32,
+        elapsed: Duration,
+        permission_level: &PermissionLevel,
+    ) -> Option<HangAction> {
         if self.alerted {
             return None; // Only alert once
         }
@@ -37,16 +42,13 @@ impl HangDetector {
         self.alerted = true;
 
         match permission_level {
-            PermissionLevel::Supervised => {
-                Some(HangAction::Pause(
-                    "I've been working on this for a while without making progress. Should I continue?".to_string()
-                ))
-            }
-            PermissionLevel::Autonomous => {
-                Some(HangAction::Alert(
-                    "Heads up -- this run has been looping for a while. /stop to end run.".to_string()
-                ))
-            }
+            PermissionLevel::Supervised => Some(HangAction::Pause(
+                "I've been working on this for a while without making progress. Should I continue?"
+                    .to_string(),
+            )),
+            PermissionLevel::Autonomous => Some(HangAction::Alert(
+                "Heads up -- this run has been looping for a while. /stop to end run.".to_string(),
+            )),
             PermissionLevel::Locked => None,
         }
     }
@@ -58,7 +60,8 @@ impl HangDetector {
         }
         // Keep last 20
         if self.recent_tool_calls.len() > 20 {
-            self.recent_tool_calls.drain(..self.recent_tool_calls.len() - 20);
+            self.recent_tool_calls
+                .drain(..self.recent_tool_calls.len() - 20);
         }
     }
 

@@ -1,7 +1,7 @@
+use crate::error::{HomardError, Result};
 use security_framework::passwords::{
     delete_generic_password, get_generic_password, set_generic_password,
 };
-use crate::error::{HomardError, Result};
 
 /// macOS Keychain error code: item not found
 const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;

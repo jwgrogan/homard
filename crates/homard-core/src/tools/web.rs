@@ -1,6 +1,6 @@
-use std::sync::OnceLock;
-use crate::types::ToolSchema;
 use crate::error::{HomardError, Result};
+use crate::types::ToolSchema;
+use std::sync::OnceLock;
 
 static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
@@ -43,39 +43,61 @@ pub fn fetch_schema() -> ToolSchema {
 }
 
 pub async fn search(args: serde_json::Value) -> Result<String> {
-    let query = args.get("query")
+    let query = args
+        .get("query")
         .and_then(|q| q.as_str())
         .ok_or_else(|| HomardError::Tool("Missing 'query' argument".to_string()))?;
 
     // Use DuckDuckGo HTML for simplicity (no API key needed)
-    let url = format!("https://html.duckduckgo.com/html/?q={}", urlencoding::encode(query));
+    let url = format!(
+        "https://html.duckduckgo.com/html/?q={}",
+        urlencoding::encode(query)
+    );
     let client = get_client();
-    let resp = client.get(&url)
+    let resp = client
+        .get(&url)
         .send()
         .await
         .map_err(|e| HomardError::Tool(e.to_string()))?;
 
-    let body = resp.text().await.map_err(|e| HomardError::Tool(e.to_string()))?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| HomardError::Tool(e.to_string()))?;
 
     // Extract result snippets (basic HTML parsing)
     let mut results = Vec::new();
     for line in body.lines() {
         if line.contains("result__snippet") {
-            let clean = line.replace("<b>", "").replace("</b>", "")
-                .replace("&quot;", "\"").replace("&amp;", "&");
+            let clean = line
+                .replace("<b>", "")
+                .replace("</b>", "")
+                .replace("&quot;", "\"")
+                .replace("&amp;", "&");
             // Strip HTML tags
-            let text: String = clean.chars().fold((String::new(), false), |(mut acc, in_tag), c| {
-                if c == '<' { (acc, true) }
-                else if c == '>' { (acc, false) }
-                else if !in_tag { acc.push(c); (acc, false) }
-                else { (acc, true) }
-            }).0;
+            let text: String = clean
+                .chars()
+                .fold((String::new(), false), |(mut acc, in_tag), c| {
+                    if c == '<' {
+                        (acc, true)
+                    } else if c == '>' {
+                        (acc, false)
+                    } else if !in_tag {
+                        acc.push(c);
+                        (acc, false)
+                    } else {
+                        (acc, true)
+                    }
+                })
+                .0;
             let trimmed = text.trim().to_string();
             if !trimmed.is_empty() {
                 results.push(trimmed);
             }
         }
-        if results.len() >= 5 { break; }
+        if results.len() >= 5 {
+            break;
+        }
     }
 
     if results.is_empty() {
@@ -86,25 +108,39 @@ pub async fn search(args: serde_json::Value) -> Result<String> {
 }
 
 pub async fn fetch(args: serde_json::Value) -> Result<String> {
-    let url = args.get("url")
+    let url = args
+        .get("url")
         .and_then(|u| u.as_str())
         .ok_or_else(|| HomardError::Tool("Missing 'url' argument".to_string()))?;
 
     let client = get_client();
-    let resp = client.get(url)
+    let resp = client
+        .get(url)
         .send()
         .await
         .map_err(|e| HomardError::Tool(e.to_string()))?;
 
-    let body = resp.text().await.map_err(|e| HomardError::Tool(e.to_string()))?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| HomardError::Tool(e.to_string()))?;
 
     // Basic HTML to text (strip tags)
-    let text: String = body.chars().fold((String::new(), false), |(mut acc, in_tag), c| {
-        if c == '<' { (acc, true) }
-        else if c == '>' { (acc, false) }
-        else if !in_tag { acc.push(c); (acc, false) }
-        else { (acc, true) }
-    }).0;
+    let text: String = body
+        .chars()
+        .fold((String::new(), false), |(mut acc, in_tag), c| {
+            if c == '<' {
+                (acc, true)
+            } else if c == '>' {
+                (acc, false)
+            } else if !in_tag {
+                acc.push(c);
+                (acc, false)
+            } else {
+                (acc, true)
+            }
+        })
+        .0;
 
     Ok(text.trim().to_string())
 }

@@ -1,7 +1,7 @@
-pub mod registry;
-pub mod shell;
-pub mod web;
 pub mod files;
 pub mod memory;
-pub mod user_profile;
+pub mod registry;
 pub mod session;
+pub mod shell;
+pub mod user_profile;
+pub mod web;

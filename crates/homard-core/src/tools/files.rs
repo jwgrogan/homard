@@ -1,5 +1,5 @@
-use crate::types::ToolSchema;
 use crate::error::{HomardError, Result};
+use crate::types::ToolSchema;
 
 const BLOCKED_READ_PATHS: &[&str] = &[
     ".ssh/",
@@ -86,20 +86,26 @@ pub fn write_schema() -> ToolSchema {
 }
 
 pub async fn read(args: serde_json::Value) -> Result<String> {
-    let path = args.get("path")
+    let path = args
+        .get("path")
         .and_then(|p| p.as_str())
         .ok_or_else(|| HomardError::Tool("Missing 'path' argument".to_string()))?;
 
     if is_read_blocked(path) {
-        return Err(HomardError::Tool(format!("Access denied: '{}' is a sensitive file", path)));
+        return Err(HomardError::Tool(format!(
+            "Access denied: '{}' is a sensitive file",
+            path
+        )));
     }
 
-    tokio::fs::read_to_string(path).await
+    tokio::fs::read_to_string(path)
+        .await
         .map_err(|e| HomardError::Tool(format!("Failed to read '{}': {}", path, e)))
 }
 
 pub async fn write(args: serde_json::Value) -> Result<String> {
-    let path = args.get("path")
+    let path = args
+        .get("path")
         .and_then(|p| p.as_str())
         .ok_or_else(|| HomardError::Tool("Missing 'path' argument".to_string()))?;
 
@@ -107,16 +113,19 @@ pub async fn write(args: serde_json::Value) -> Result<String> {
         return Err(HomardError::Tool(format!("Write denied: '{}' is outside allowed directories. Writes are restricted to ~/.homard/", path)));
     }
 
-    let content = args.get("content")
+    let content = args
+        .get("content")
         .and_then(|c| c.as_str())
         .ok_or_else(|| HomardError::Tool("Missing 'content' argument".to_string()))?;
 
     if let Some(parent) = std::path::Path::new(path).parent() {
-        tokio::fs::create_dir_all(parent).await
+        tokio::fs::create_dir_all(parent)
+            .await
             .map_err(|e| HomardError::Tool(e.to_string()))?;
     }
 
-    tokio::fs::write(path, content).await
+    tokio::fs::write(path, content)
+        .await
         .map_err(|e| HomardError::Tool(format!("Failed to write '{}': {}", path, e)))?;
 
     Ok(format!("Wrote {} bytes to {}", content.len(), path))

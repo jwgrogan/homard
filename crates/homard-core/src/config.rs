@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
 use crate::error::HomardError;
+use crate::error::Result;
 use crate::types::{PermissionLevel, ProviderConfig, ServerMode, ShellTool};
 
 // ---------------------------------------------------------------------------
@@ -228,7 +228,10 @@ pub fn save_telegram_token(dirs: &HomardDirs, token: &str) -> Result<()> {
     crate::keychain::store_secret(TELEGRAM_KEYCHAIN_SERVICE, TELEGRAM_KEYCHAIN_ACCOUNT, token)?;
     let mut cfg = HomardConfig::load_or_default(&dirs.config_path());
     cfg.telegram.enabled = true;
-    cfg.telegram.token_keychain_ref = Some(format!("{}/{}", TELEGRAM_KEYCHAIN_SERVICE, TELEGRAM_KEYCHAIN_ACCOUNT));
+    cfg.telegram.token_keychain_ref = Some(format!(
+        "{}/{}",
+        TELEGRAM_KEYCHAIN_SERVICE, TELEGRAM_KEYCHAIN_ACCOUNT
+    ));
     cfg.save(&dirs.config_path())?;
     Ok(())
 }
@@ -276,7 +279,9 @@ pub fn generate_pairing_code(dirs: &HomardDirs) -> Result<String> {
         expires_at: now + chrono::Duration::minutes(10),
     };
     let mut cfg = HomardConfig::load_or_default(&dirs.config_path());
-    cfg.telegram.pending_pairing_codes.retain(|p| p.expires_at > now);
+    cfg.telegram
+        .pending_pairing_codes
+        .retain(|p| p.expires_at > now);
     cfg.telegram.pending_pairing_codes.push(pairing_code);
     cfg.save(&dirs.config_path())?;
     Ok(code)
@@ -286,11 +291,15 @@ pub fn generate_pairing_code(dirs: &HomardDirs) -> Result<String> {
 pub fn validate_pairing_code(dirs: &HomardDirs, code: &str) -> Result<bool> {
     let now = Utc::now();
     let mut cfg = HomardConfig::load_or_default(&dirs.config_path());
-    let found = cfg.telegram.pending_pairing_codes
+    let found = cfg
+        .telegram
+        .pending_pairing_codes
         .iter()
         .any(|p| p.code == code && p.expires_at > now);
     if found {
-        cfg.telegram.pending_pairing_codes.retain(|p| p.code != code);
+        cfg.telegram
+            .pending_pairing_codes
+            .retain(|p| p.code != code);
         cfg.save(&dirs.config_path())?;
     }
     Ok(found)
@@ -390,7 +399,10 @@ mod tests {
 
         add_paired_chat(&dirs, "123456789").unwrap();
         let cfg = HomardConfig::load_or_default(&dirs.config_path());
-        assert!(cfg.telegram.paired_chat_ids.contains(&"123456789".to_string()));
+        assert!(cfg
+            .telegram
+            .paired_chat_ids
+            .contains(&"123456789".to_string()));
 
         // Idempotent -- add twice
         add_paired_chat(&dirs, "123456789").unwrap();
@@ -399,7 +411,10 @@ mod tests {
 
         remove_paired_chat(&dirs, "123456789").unwrap();
         let cfg = HomardConfig::load_or_default(&dirs.config_path());
-        assert!(!cfg.telegram.paired_chat_ids.contains(&"123456789".to_string()));
+        assert!(!cfg
+            .telegram
+            .paired_chat_ids
+            .contains(&"123456789".to_string()));
     }
 
     #[test]
