@@ -1,11 +1,11 @@
-use axum::{
-    extract::{Path, State, Query},
-    response::Json,
-    http::StatusCode,
-};
-use serde::{Deserialize, Serialize};
 use super::AppState;
 use crate::types::*;
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::Json,
+};
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 pub struct ChatRequest {
@@ -26,14 +26,21 @@ pub async fn chat(
     let channel = req.channel.unwrap_or_else(|| "chat".to_string());
 
     // Catch any panics from the agent loop so the daemon never crashes
-    let result = tokio::task::spawn(async move {
-        state.agent.run(&channel, &req.message, Trigger::Chat).await
-    }).await;
+    let result =
+        tokio::task::spawn(
+            async move { state.agent.run(&channel, &req.message, Trigger::Chat).await },
+        )
+        .await;
 
     let (response, run_id) = match result {
         Ok(Ok((text, id))) => (text, id),
         Ok(Err(e)) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-        Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Agent panicked: {}", e))),
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Agent panicked: {}", e),
+            ))
+        }
     };
 
     Ok(Json(ChatResponse { response, run_id }))
@@ -54,29 +61,55 @@ pub async fn status(State(state): State<AppState>) -> Json<DaemonStatus> {
     // Re-read config from disk to pick up OAuth changes
     let dirs = crate::config::HomardDirs::default_path();
     let fresh = crate::config::HomardConfig::load_or_default(&dirs.config_path());
+    let current_run = {
+        let store = state.store.lock().await;
+        store.get_running_run().ok().flatten().map(|run| {
+            let trigger = match run.trigger {
+                Trigger::Chat => "Chat",
+                Trigger::Telegram => "Telegram",
+                Trigger::Cron => "Schedule",
+                Trigger::Cli => "CLI",
+            };
+            let channel = if run.channel == "chat" {
+                "Local thread"
+            } else {
+                &run.channel
+            };
+            format!("{} via {}", channel, trigger)
+        })
+    };
 
     // Update in-memory config if providers changed
     {
         let mut config = state.config.write().await;
-        if config.providers.len() != fresh.providers.len() || config.active_provider != fresh.active_provider {
-            *config = fresh.clone();
-        }
+        *config = fresh.clone();
     }
 
     Json(DaemonStatus {
         running: true,
         uptime_secs: None,
-        active_provider: if fresh.providers.is_empty() { None } else { Some(fresh.active_provider.clone()) },
-        active_model: fresh.providers.get(&fresh.active_provider).map(|p| p.model.clone()),
+        active_provider: if fresh.providers.is_empty() {
+            None
+        } else {
+            Some(fresh.active_provider.clone())
+        },
+        active_model: fresh
+            .providers
+            .get(&fresh.active_provider)
+            .map(|p| p.model.clone()),
         permission_level: fresh.permission_level.clone(),
         telegram_connected: fresh.telegram.enabled,
-        current_run: None,
+        current_run,
     })
 }
 
-pub async fn activity(State(state): State<AppState>) -> std::result::Result<Json<Vec<AgentRun>>, (StatusCode, String)> {
+pub async fn activity(
+    State(state): State<AppState>,
+) -> std::result::Result<Json<Vec<AgentRun>>, (StatusCode, String)> {
     let store = state.store.lock().await;
-    let runs = store.list_runs(20).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let runs = store
+        .list_runs(20)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(runs))
 }
 
@@ -87,7 +120,9 @@ pub struct ConversationQuery {
 
 pub async fn list_conversations(State(state): State<AppState>) -> Json<Vec<String>> {
     let store = state.store.lock().await;
-    let channels = store.list_channels().unwrap_or_else(|_| vec!["chat".to_string()]);
+    let channels = store
+        .list_channels()
+        .unwrap_or_else(|_| vec!["chat".to_string()]);
     Json(channels)
 }
 
@@ -98,13 +133,18 @@ pub async fn get_conversation(
 ) -> std::result::Result<Json<Vec<ChatMessage>>, (StatusCode, String)> {
     let store = state.store.lock().await;
     let limit = query.limit.unwrap_or(50);
-    let history = store.get_history(&id, limit).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let history = store
+        .get_history(&id, limit)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(history))
 }
 
-pub async fn list_schedules(State(_state): State<AppState>) -> std::result::Result<Json<Vec<Schedule>>, (StatusCode, String)> {
+pub async fn list_schedules(
+    State(_state): State<AppState>,
+) -> std::result::Result<Json<Vec<Schedule>>, (StatusCode, String)> {
     let dirs = crate::config::HomardDirs::default_path();
-    let schedules = crate::schedule::list_schedules(&dirs).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let schedules = crate::schedule::list_schedules(&dirs)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(schedules))
 }
 
@@ -113,22 +153,25 @@ pub async fn create_schedule(
     Json(schedule): Json<Schedule>,
 ) -> std::result::Result<Json<Schedule>, (StatusCode, String)> {
     let dirs = crate::config::HomardDirs::default_path();
-    crate::schedule::save_schedule(&dirs, &schedule).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    crate::schedule::save_schedule(&dirs, &schedule)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(schedule))
 }
 
-pub async fn delete_schedule(
-    State(_state): State<AppState>,
-    Path(id): Path<String>,
-) -> StatusCode {
+pub async fn delete_schedule(State(_state): State<AppState>, Path(id): Path<String>) -> StatusCode {
     let dirs = crate::config::HomardDirs::default_path();
     let _ = crate::schedule::delete_schedule(&dirs, &id);
     StatusCode::OK
 }
 
-pub async fn cron_health(State(state): State<AppState>) -> std::result::Result<Json<Vec<crate::types::CronHealth>>, (StatusCode, String)> {
+pub async fn cron_health(
+    State(state): State<AppState>,
+) -> std::result::Result<Json<Vec<crate::types::CronHealth>>, (StatusCode, String)> {
     let store = state.store.lock().await;
-    store.get_cron_health().map(Json).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    store
+        .get_cron_health()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 pub async fn get_settings(State(state): State<AppState>) -> Json<serde_json::Value> {
@@ -140,6 +183,12 @@ pub async fn get_settings(State(state): State<AppState>) -> Json<serde_json::Val
         *config = fresh.clone();
     }
     Json(serde_json::to_value(&fresh).unwrap_or_default())
+}
+
+pub async fn settings_snapshot(
+    State(state): State<AppState>,
+) -> Json<crate::diagnostics::SettingsSnapshot> {
+    Json(crate::diagnostics::build_settings_snapshot(&state).await)
 }
 
 pub async fn update_settings(
@@ -180,7 +229,10 @@ pub async fn start_auth(
     State(state): State<AppState>,
     Path(provider): Path<String>,
 ) -> std::result::Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (auth_url, _port) = state.oauth.start_auth(&provider).await
+    let (auth_url, _port) = state
+        .oauth
+        .start_auth(&provider)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(serde_json::json!({ "auth_url": auth_url })))
 }
@@ -196,10 +248,16 @@ pub async fn auth_callback(
     Query(query): Query<AuthCallbackQuery>,
 ) -> axum::response::Html<String> {
     let result = async {
-        let verifier = state.oauth.take_verifier(&provider).await
+        let verifier = state
+            .oauth
+            .take_verifier(&provider)
+            .await
             .ok_or_else(|| "No pending auth flow".to_string())?;
         let redirect_uri = format!("http://127.0.0.1:17700/auth/{}/callback", provider);
-        let _tokens = state.oauth.exchange_code(&provider, &query.code, &verifier, &redirect_uri).await
+        let _tokens = state
+            .oauth
+            .exchange_code(&provider, &query.code, &verifier, &redirect_uri)
+            .await
             .map_err(|e| e.to_string())?;
 
         // Save provider config so the daemon knows about it
@@ -231,7 +289,8 @@ pub async fn auth_callback(
         let _ = config.save(&dirs.config_path());
 
         Ok::<_, String>(format!("Connected to {}!", provider))
-    }.await;
+    }
+    .await;
 
     match result {
         Ok(msg) => axum::response::Html(format!(
@@ -254,6 +313,73 @@ pub async fn auth_callback(
 }
 
 #[derive(Deserialize)]
+pub struct ProviderApiKeyRequest {
+    pub api_key: String,
+    pub model: Option<String>,
+}
+
+pub async fn save_provider_api_key(
+    State(state): State<AppState>,
+    Path(provider): Path<String>,
+    Json(req): Json<ProviderApiKeyRequest>,
+) -> std::result::Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if provider != "openrouter" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Provider '{}' does not accept API keys here", provider),
+        ));
+    }
+
+    let api_key = req.api_key.trim();
+    if api_key.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "API key cannot be empty".to_string(),
+        ));
+    }
+
+    let service = format!("homard.{}", provider);
+    crate::secrets::store_secret(&service, "api_key", api_key)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let dirs = crate::config::HomardDirs::default_path();
+    let mut config = state.config.write().await;
+    let entry = config
+        .providers
+        .entry(provider.clone())
+        .or_insert(crate::types::ProviderConfig {
+            kind: ProviderKind::Openrouter,
+            auth_type: "api_key".to_string(),
+            client_id: None,
+            token_keychain_ref: None,
+            api_key_keychain_ref: Some(format!("{}.api_key", service)),
+            model: "anthropic/claude-sonnet-4-6".to_string(),
+            base_url: None,
+        });
+
+    entry.kind = ProviderKind::Openrouter;
+    entry.auth_type = "api_key".to_string();
+    entry.api_key_keychain_ref = Some(format!("{}.api_key", service));
+    entry.token_keychain_ref = None;
+    if let Some(model) = req
+        .model
+        .as_deref()
+        .filter(|model| !model.trim().is_empty())
+    {
+        entry.model = model.to_string();
+    }
+    config.active_provider = provider.clone();
+    config
+        .save(&dirs.config_path())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(serde_json::json!({
+        "status": "connected",
+        "message": "OpenRouter API key saved."
+    })))
+}
+
+#[derive(Deserialize)]
 pub struct TelegramTokenRequest {
     pub token: String,
 }
@@ -266,7 +392,9 @@ pub async fn save_telegram_token(
 
     // Verify the token first
     let client = crate::telegram::TelegramClient::new(&req.token);
-    let bot_name = client.verify().await
+    let bot_name = client
+        .verify()
+        .await
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid token: {}", e)))?;
 
     // Save to Keychain + config (this updates config.json with token_keychain_ref)
@@ -288,7 +416,9 @@ pub async fn save_telegram_token(
     })))
 }
 
-pub async fn telegram_pair(State(_state): State<AppState>) -> std::result::Result<Json<serde_json::Value>, (StatusCode, String)> {
+pub async fn telegram_pair(
+    State(_state): State<AppState>,
+) -> std::result::Result<Json<serde_json::Value>, (StatusCode, String)> {
     let dirs = crate::config::HomardDirs::default_path();
     let code = crate::config::generate_pairing_code(&dirs)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -296,25 +426,33 @@ pub async fn telegram_pair(State(_state): State<AppState>) -> std::result::Resul
 }
 
 pub async fn telegram_status(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let config = state.config.read().await;
+    let dirs = crate::config::HomardDirs::default_path();
+    let fresh = crate::config::HomardConfig::load_or_default(&dirs.config_path());
+    {
+        let mut config = state.config.write().await;
+        *config = fresh.clone();
+    }
 
     // Try to get bot name if token is configured
     let mut bot_name: Option<String> = None;
+    let mut connected = false;
     #[cfg(target_os = "macos")]
-    if config.telegram.token_keychain_ref.is_some() {
-        let dirs = crate::config::HomardDirs::default_path();
+    if fresh.telegram.token_keychain_ref.is_some() {
         if let Ok(Some(token)) = crate::config::get_telegram_token(&dirs) {
             let client = crate::telegram::TelegramClient::new(&token);
             if let Ok(name) = client.verify().await {
                 bot_name = Some(name);
+                connected = true;
             }
         }
     }
 
     Json(serde_json::json!({
-        "enabled": config.telegram.enabled,
-        "paired_chats": config.telegram.paired_chat_ids.len(),
-        "allowed_usernames": config.telegram.allowed_usernames,
+        "enabled": connected,
+        "configured": fresh.telegram.token_keychain_ref.is_some(),
+        "paired_chats": fresh.telegram.paired_chat_ids.len(),
+        "paired_chat_ids": fresh.telegram.paired_chat_ids,
+        "allowed_usernames": fresh.telegram.allowed_usernames,
         "bot_name": bot_name,
     }))
 }
@@ -322,7 +460,9 @@ pub async fn telegram_status(State(state): State<AppState>) -> Json<serde_json::
 pub async fn get_server_mode(State(state): State<AppState>) -> Json<serde_json::Value> {
     let config = state.config.read().await;
     let home = dirs::home_dir().unwrap_or_default();
-    let plist_exists = home.join("Library/LaunchAgents/com.homard.daemon.plist").exists();
+    let plist_exists = home
+        .join("Library/LaunchAgents/com.homard.daemon.plist")
+        .exists();
     Json(serde_json::json!({
         "mode": config.server_mode,
         "launchd_installed": plist_exists,
@@ -340,10 +480,13 @@ pub async fn set_server_mode(
 
     if mode == "on" {
         config.server_mode = crate::types::ServerMode::On;
-        config.save(&dirs.config_path()).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        config
+            .save(&dirs.config_path())
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
         // Install launchd plist
-        let bin_path = crate::schedule::resolve_homard_bin().unwrap_or_else(|_| "homard".to_string());
+        let bin_path =
+            crate::schedule::resolve_homard_bin().unwrap_or_else(|_| "homard".to_string());
         let home = dirs::home_dir().unwrap_or_default();
         let uid = std::process::Command::new("id")
             .arg("-u")
@@ -381,22 +524,34 @@ pub async fn set_server_mode(
     </dict>
 </dict>
 </plist>"#,
-            bin_path, home.display(), home.display(),
+            bin_path,
+            home.display(),
+            home.display(),
         );
 
         let plist_path = home.join("Library/LaunchAgents/com.homard.daemon.plist");
-        std::fs::create_dir_all(plist_path.parent().unwrap()).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        std::fs::write(&plist_path, plist_content).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        std::fs::create_dir_all(plist_path.parent().unwrap())
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        std::fs::write(&plist_path, plist_content)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
         // Bootstrap the plist (modern launchctl)
         let _ = std::process::Command::new("launchctl")
-            .args(["bootstrap", &format!("gui/{}", uid), &plist_path.to_string_lossy()])
+            .args([
+                "bootstrap",
+                &format!("gui/{}", uid),
+                &plist_path.to_string_lossy(),
+            ])
             .output();
 
-        Ok(Json(serde_json::json!({"status": "on", "message": "Server mode enabled. Homard will restart on crash and start on boot."})))
+        Ok(Json(
+            serde_json::json!({"status": "on", "message": "Server mode enabled. Homard will restart on crash and start on boot."}),
+        ))
     } else {
         config.server_mode = crate::types::ServerMode::Off;
-        config.save(&dirs.config_path()).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        config
+            .save(&dirs.config_path())
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
         // Remove launchd plist
         let home = dirs::home_dir().unwrap_or_default();
@@ -410,18 +565,28 @@ pub async fn set_server_mode(
                 .map(|s| s.trim().to_string())
                 .unwrap_or_else(|| "501".to_string());
             let _ = std::process::Command::new("launchctl")
-                .args(["bootout", &format!("gui/{}", uid), &plist_path.to_string_lossy()])
+                .args([
+                    "bootout",
+                    &format!("gui/{}", uid),
+                    &plist_path.to_string_lossy(),
+                ])
                 .output();
             let _ = std::fs::remove_file(&plist_path);
         }
 
-        Ok(Json(serde_json::json!({"status": "off", "message": "Server mode disabled. Daemon will stop when you close it."})))
+        Ok(Json(
+            serde_json::json!({"status": "off", "message": "Server mode disabled. Daemon will stop when you close it."}),
+        ))
     }
 }
 
-pub async fn list_cli_sessions(State(state): State<AppState>) -> std::result::Result<Json<Vec<crate::types::CliSession>>, (StatusCode, String)> {
+pub async fn list_cli_sessions(
+    State(state): State<AppState>,
+) -> std::result::Result<Json<Vec<crate::types::CliSession>>, (StatusCode, String)> {
     let store = state.store.lock().await;
-    let sessions = store.list_sessions(20).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let sessions = store
+        .list_sessions(20)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(sessions))
 }
 
@@ -430,16 +595,27 @@ pub async fn kill_cli_session(
     Path(id): Path<String>,
 ) -> std::result::Result<StatusCode, (StatusCode, String)> {
     let store = state.store.lock().await;
-    let sessions = store.get_running_sessions().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let sessions = store
+        .get_running_sessions()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     drop(store);
 
-    let session = sessions.iter().find(|s| s.id.starts_with(&id))
+    let session = sessions
+        .iter()
+        .find(|s| s.id.starts_with(&id))
         .ok_or_else(|| (StatusCode::NOT_FOUND, "Session not found".to_string()))?;
 
     if let Some(pid) = session.pid {
-        unsafe { libc::kill(pid as i32, libc::SIGTERM); }
+        unsafe {
+            libc::kill(pid as i32, libc::SIGTERM);
+        }
         let store = state.store.lock().await;
-        let _ = store.complete_session(&session.id, crate::types::SessionStatus::Killed, None, Some("Killed via API"));
+        let _ = store.complete_session(
+            &session.id,
+            crate::types::SessionStatus::Killed,
+            None,
+            Some("Killed via API"),
+        );
     }
 
     Ok(StatusCode::OK)
@@ -454,7 +630,8 @@ pub async fn read_file(
         return Err((StatusCode::BAD_REQUEST, "Invalid filename".to_string()));
     }
     let path = state.homard_dir.join(&name);
-    tokio::fs::read_to_string(&path).await
+    tokio::fs::read_to_string(&path)
+        .await
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))
 }
 
@@ -468,7 +645,8 @@ pub async fn write_file(
         return Err((StatusCode::BAD_REQUEST, "Invalid filename".to_string()));
     }
     let path = state.homard_dir.join(&name);
-    tokio::fs::write(&path, body).await
+    tokio::fs::write(&path, body)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(StatusCode::OK)
 }

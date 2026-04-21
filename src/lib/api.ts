@@ -47,6 +47,77 @@ export interface DaemonStatus {
   current_run?: string;
 }
 
+export interface McpServerDiagnostics {
+  name: string;
+  target: string;
+  status: string;
+  auth?: string | null;
+}
+
+export interface ProviderDiagnostics {
+  key: string;
+  label: string;
+  configured: boolean;
+  active: boolean;
+  connected: boolean;
+  installed?: boolean | null;
+  binary_path?: string | null;
+  version?: string | null;
+  model?: string | null;
+  auth_status: string;
+  auth_detail?: string | null;
+  mcp_servers: McpServerDiagnostics[];
+}
+
+export interface TelegramDiagnostics {
+  connected: boolean;
+  token_configured: boolean;
+  bot_name?: string | null;
+  paired_chat_ids: string[];
+  allowed_usernames: string[];
+  status_label: string;
+}
+
+export interface DaemonDiagnostics {
+  server_mode: "on" | "off";
+  launchd_installed: boolean;
+  current_run?: string | null;
+  current_run_id?: string | null;
+  running_sessions: number;
+}
+
+export interface IdentityDiagnostics {
+  assistant_name?: string | null;
+  assistant_emoji?: string | null;
+  assistant_tagline?: string | null;
+  user_name?: string | null;
+  user_role?: string | null;
+}
+
+export interface SettingsOverview {
+  active_provider?: string | null;
+  active_model?: string | null;
+  configured_provider_count: number;
+  ready_provider_count: number;
+  permission_level: string;
+  telegram_connected: boolean;
+  telegram_label: string;
+  current_run?: string | null;
+  running_sessions: number;
+  assistant_name?: string | null;
+  user_name?: string | null;
+  server_mode: "on" | "off";
+}
+
+export interface SettingsSnapshot {
+  overview: SettingsOverview;
+  providers: Record<string, ProviderDiagnostics>;
+  telegram: TelegramDiagnostics;
+  daemon: DaemonDiagnostics;
+  identity: IdentityDiagnostics;
+  files: string[];
+}
+
 export async function sendChat(message: string, channel = "chat"): Promise<{ response: string }> {
   const res = await apiFetch("/chat", {
     method: "POST",
@@ -92,6 +163,14 @@ export async function getSettings(): Promise<Record<string, unknown>> {
   return res.json();
 }
 
+export async function getSettingsSnapshot(): Promise<SettingsSnapshot> {
+  const res = await apiFetch("/settings/snapshot");
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return res.json();
+}
+
 export async function updateSettings(settings: Record<string, unknown>): Promise<void> {
   await apiFetch("/settings", {
     method: "PUT",
@@ -120,6 +199,17 @@ export async function generatePairingCode(): Promise<string> {
 
 export async function getTelegramStatus(): Promise<{ enabled: boolean; paired_chats: number }> {
   const res = await apiFetch("/telegram/status");
+  return res.json();
+}
+
+export async function saveProviderApiKey(provider: string, apiKey: string, model?: string): Promise<{ status: string; message: string }> {
+  const res = await apiFetch(`/providers/${provider}/api-key`, {
+    method: "POST",
+    body: JSON.stringify({ api_key: apiKey, model }),
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
   return res.json();
 }
 

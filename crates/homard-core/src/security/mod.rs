@@ -1,8 +1,8 @@
-pub mod sandbox;
 pub mod prompt_guard;
+pub mod sandbox;
 
-use tokio::sync::RwLock;
 use crate::types::PermissionLevel;
+use tokio::sync::RwLock;
 
 pub struct SecurityManager {
     level: RwLock<PermissionLevel>,
@@ -10,12 +10,17 @@ pub struct SecurityManager {
 
 impl SecurityManager {
     pub fn new(level: PermissionLevel) -> Self {
-        Self { level: RwLock::new(level) }
+        Self {
+            level: RwLock::new(level),
+        }
     }
 
     pub fn permission_level(&self) -> PermissionLevel {
         // Use try_read to avoid async in non-async context
-        self.level.try_read().map(|l| l.clone()).unwrap_or(PermissionLevel::Supervised)
+        self.level
+            .try_read()
+            .map(|l| l.clone())
+            .unwrap_or(PermissionLevel::Supervised)
     }
 
     pub async fn set_permission_level(&self, level: PermissionLevel) {
@@ -31,7 +36,10 @@ impl SecurityManager {
             PermissionLevel::Autonomous => {
                 // Autonomous auto-approves everything EXCEPT categorically dangerous commands
                 if tool_name == "shell_exec" && sandbox::is_blocked(arguments) {
-                    tracing::warn!("Blocked dangerous command even in autonomous mode: {:?}", arguments);
+                    tracing::warn!(
+                        "Blocked dangerous command even in autonomous mode: {:?}",
+                        arguments
+                    );
                     return false;
                 }
                 true
@@ -48,7 +56,10 @@ impl SecurityManager {
                     // For v1, we auto-approve (full approval flow is v2)
                     // but we log them for audit
                     if sandbox::needs_confirmation(arguments) {
-                        tracing::warn!("Shell command needs confirmation (auto-approving in v1): {:?}", arguments);
+                        tracing::warn!(
+                            "Shell command needs confirmation (auto-approving in v1): {:?}",
+                            arguments
+                        );
                     }
                     return true;
                 }

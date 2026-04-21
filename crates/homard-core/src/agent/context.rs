@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use crate::error::Result;
 use crate::types::{ChatMessage, ToolSchema};
+use std::path::PathBuf;
 
 pub struct ContextBuilder {
     homard_dir: PathBuf,
@@ -15,13 +15,24 @@ impl ContextBuilder {
         let mut parts = Vec::new();
 
         // Load identity files in order
-        let files = ["IDENTITY.md", "SOUL.md", "USER.md", "AGENTS.md", "TOOLS.md", "MEMORY.md"];
+        let files = [
+            "IDENTITY.md",
+            "SOUL.md",
+            "USER.md",
+            "AGENTS.md",
+            "TOOLS.md",
+            "MEMORY.md",
+        ];
         for filename in &files {
             let path = self.homard_dir.join(filename);
             if path.exists() {
                 match tokio::fs::read_to_string(&path).await {
                     Ok(content) if !content.trim().is_empty() => {
-                        parts.push(format!("# {}\n{}", filename.trim_end_matches(".md"), content.trim()));
+                        parts.push(format!(
+                            "# {}\n{}",
+                            filename.trim_end_matches(".md"),
+                            content.trim()
+                        ));
                     }
                     _ => {}
                 }
@@ -30,7 +41,10 @@ impl ContextBuilder {
 
         // Add dynamic context
         let now = chrono::Local::now();
-        parts.push(format!("# Current Context\nDate: {}\nPlatform: macOS", now.format("%Y-%m-%d %H:%M %Z")));
+        parts.push(format!(
+            "# Current Context\nDate: {}\nPlatform: macOS",
+            now.format("%Y-%m-%d %H:%M %Z")
+        ));
 
         Ok(parts.join("\n\n"))
     }
@@ -64,22 +78,62 @@ impl ContextBuilder {
         let lower = message.to_lowercase();
 
         // Core tools always included
-        let core_tools = ["shell_exec", "file_read", "file_write", "memory_save", "memory_search"];
+        let core_tools = [
+            "shell_exec",
+            "file_read",
+            "file_write",
+            "memory_save",
+            "memory_search",
+        ];
 
         // Keyword -> tool name mappings
         let keyword_tools: &[(&[&str], &str)] = &[
-            (&["search", "find", "look up", "google", "what is"], "web_search"),
-            (&["url", "http", "fetch", "website", "page", "link"], "web_fetch"),
-            (&["deploy", "build", "run", "code", "fix", "debug", "implement", "refactor", "test", "claude", "codex"], "spawn_session"),
-            (&["session", "running", "status", "check on"], "list_sessions"),
+            (
+                &["search", "find", "look up", "google", "what is"],
+                "web_search",
+            ),
+            (
+                &["url", "http", "fetch", "website", "page", "link"],
+                "web_fetch",
+            ),
+            (
+                &[
+                    "deploy",
+                    "build",
+                    "run",
+                    "code",
+                    "fix",
+                    "debug",
+                    "implement",
+                    "refactor",
+                    "test",
+                    "claude",
+                    "codex",
+                ],
+                "spawn_session",
+            ),
+            (
+                &["session", "running", "status", "check on"],
+                "list_sessions",
+            ),
             (&["kill", "stop", "cancel", "abort"], "kill_session"),
-            (&["remember", "note", "save", "memory", "learn"], "memory_save"),
+            (
+                &["remember", "note", "save", "memory", "learn"],
+                "memory_save",
+            ),
             (&["recall", "memory", "did i", "what was"], "memory_search"),
-            (&["profile", "my name", "about me", "i am", "i work"], "update_user_profile"),
-            (&["memory.md", "reorganize", "clean up memory", "prune"], "maintain_memory"),
+            (
+                &["profile", "my name", "about me", "i am", "i work"],
+                "update_user_profile",
+            ),
+            (
+                &["memory.md", "reorganize", "clean up memory", "prune"],
+                "maintain_memory",
+            ),
         ];
 
-        let mut selected_names: std::collections::HashSet<&str> = core_tools.iter().copied().collect();
+        let mut selected_names: std::collections::HashSet<&str> =
+            core_tools.iter().copied().collect();
 
         for (keywords, tool_name) in keyword_tools {
             if keywords.iter().any(|kw| lower.contains(kw)) {
@@ -94,7 +148,8 @@ impl ContextBuilder {
             }
         }
 
-        all_tools.iter()
+        all_tools
+            .iter()
             .filter(|t| selected_names.contains(t.name.as_str()))
             .cloned()
             .collect()

@@ -17,7 +17,7 @@ pub fn create_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let _tray = TrayIconBuilder::new()
         .icon(tray_icon)
-        .icon_as_template(true)  // macOS: system handles light/dark mode
+        .icon_as_template(true) // macOS: system handles light/dark mode
         .menu(&menu)
         .tooltip("Homard")
         .on_menu_event(move |app, event| match event.id.as_ref() {

@@ -1,7 +1,7 @@
+use crate::error::{HomardError, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::error::{HomardError, Result};
 
 #[derive(Debug, Clone)]
 pub struct OAuthTokens {
@@ -28,18 +28,24 @@ pub struct OAuthManager {
 impl OAuthManager {
     pub fn new() -> Self {
         let mut providers = HashMap::new();
-        providers.insert("openai".to_string(), OAuthProviderConfig {
-            authorize_url: "https://auth.openai.com/oauth/authorize".to_string(),
-            token_url: "https://auth.openai.com/oauth/token".to_string(),
-            client_id: "app_EMoamEEZ73f0CkXaXp7hrann".to_string(),
-            scopes: "openid profile email offline_access".to_string(),
-        });
-        providers.insert("anthropic".to_string(), OAuthProviderConfig {
-            authorize_url: "https://platform.claude.com/oauth/authorize".to_string(),
-            token_url: "https://platform.claude.com/v1/oauth/token".to_string(),
-            client_id: "https://claude.ai/oauth/claude-code-client-metadata".to_string(),
-            scopes: "org:create_api_key user:profile user:inference".to_string(),
-        });
+        providers.insert(
+            "openai".to_string(),
+            OAuthProviderConfig {
+                authorize_url: "https://auth.openai.com/oauth/authorize".to_string(),
+                token_url: "https://auth.openai.com/oauth/token".to_string(),
+                client_id: "app_EMoamEEZ73f0CkXaXp7hrann".to_string(),
+                scopes: "openid profile email offline_access".to_string(),
+            },
+        );
+        providers.insert(
+            "anthropic".to_string(),
+            OAuthProviderConfig {
+                authorize_url: "https://platform.claude.com/oauth/authorize".to_string(),
+                token_url: "https://platform.claude.com/v1/oauth/token".to_string(),
+                client_id: "https://claude.ai/oauth/claude-code-client-metadata".to_string(),
+                scopes: "org:create_api_key user:profile user:inference".to_string(),
+            },
+        );
 
         Self {
             tokens: Arc::new(RwLock::new(HashMap::new())),
@@ -51,9 +57,9 @@ impl OAuthManager {
 
     /// Generate PKCE code verifier and challenge
     fn generate_pkce() -> (String, String) {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
         use rand::Rng;
-        use sha2::{Sha256, Digest};
-        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+        use sha2::{Digest, Sha256};
 
         let verifier: String = rand::thread_rng()
             .sample_iter(&rand::distributions::Alphanumeric)
@@ -70,7 +76,9 @@ impl OAuthManager {
 
     /// Start OAuth flow: returns (auth_url, port). Spawns a temp callback server.
     pub async fn start_auth(&self, provider_name: &str) -> Result<(String, u16)> {
-        let provider = self.providers.get(provider_name)
+        let provider = self
+            .providers
+            .get(provider_name)
             .ok_or_else(|| HomardError::OAuth(format!("Unknown provider: {}", provider_name)))?;
 
         let (verifier, challenge) = Self::generate_pkce();
@@ -78,19 +86,28 @@ impl OAuthManager {
         // OpenAI requires port 1455 with localhost (not 127.0.0.1)
         // Anthropic uses ephemeral port with localhost
         let (listener, redirect_uri) = if provider_name == "openai" {
-            let l = tokio::net::TcpListener::bind("127.0.0.1:1455").await
-                .map_err(|e| HomardError::OAuth(format!("Port 1455 busy (is Codex running?): {}", e)))?;
+            let l = tokio::net::TcpListener::bind("127.0.0.1:1455")
+                .await
+                .map_err(|e| {
+                    HomardError::OAuth(format!("Port 1455 busy (is Codex running?): {}", e))
+                })?;
             (l, "http://localhost:1455/auth/callback".to_string())
         } else {
-            let l = tokio::net::TcpListener::bind("127.0.0.1:0").await
+            let l = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
                 .map_err(|e| HomardError::OAuth(format!("Failed to bind: {}", e)))?;
-            let port = l.local_addr().map_err(|e| HomardError::OAuth(e.to_string()))?.port();
+            let port = l
+                .local_addr()
+                .map_err(|e| HomardError::OAuth(e.to_string()))?
+                .port();
             let uri = format!("http://localhost:{}/callback", port);
             (l, uri)
         };
 
-        let port = listener.local_addr()
-            .map_err(|e| HomardError::OAuth(e.to_string()))?.port();
+        let port = listener
+            .local_addr()
+            .map_err(|e| HomardError::OAuth(e.to_string()))?
+            .port();
 
         // Generate random state
         use rand::Rng;
@@ -113,7 +130,9 @@ impl OAuthManager {
 
         // OpenAI-specific params
         if provider_name == "openai" {
-            auth_url.push_str("&codex_cli_simplified_flow=true&originator=homard&id_token_add_organizations=true");
+            auth_url.push_str(
+                "&codex_cli_simplified_flow=true&originator=homard&id_token_add_organizations=true",
+            );
         }
 
         // Store verifier + redirect_uri for later exchange
@@ -135,7 +154,8 @@ impl OAuthManager {
             let timeout = tokio::time::timeout(
                 std::time::Duration::from_secs(300), // 5 min timeout
                 listener.accept(),
-            ).await;
+            )
+            .await;
 
             let (stream, _) = match timeout {
                 Ok(Ok(v)) => v,
@@ -157,16 +177,22 @@ impl OAuthManager {
             // Extract code from the HTTP request
             // Request line looks like: GET /auth/callback?code=xxx&state=yyy HTTP/1.1
             let first_line = request.lines().next().unwrap_or("");
-            tracing::info!("OAuth callback received: {}", &first_line[..first_line.len().min(200)]);
+            tracing::info!(
+                "OAuth callback received: {}",
+                &first_line[..first_line.len().min(200)]
+            );
 
             // Extract query string from the request path
-            let code = first_line.split_whitespace().nth(1) // Get the path: /auth/callback?code=xxx
+            let code = first_line
+                .split_whitespace()
+                .nth(1) // Get the path: /auth/callback?code=xxx
                 .and_then(|path| path.split('?').nth(1)) // Get query: code=xxx&state=yyy
                 .and_then(|qs| {
                     // Parse query params properly
                     for param in qs.split('&') {
                         if let Some(value) = param.strip_prefix("code=") {
-                            let decoded = urlencoding::decode(value).unwrap_or(std::borrow::Cow::Borrowed(value));
+                            let decoded = urlencoding::decode(value)
+                                .unwrap_or(std::borrow::Cow::Borrowed(value));
                             return Some(decoded.to_string());
                         }
                     }
@@ -207,7 +233,8 @@ impl OAuthManager {
             };
 
             // Exchange code for tokens
-            let resp = http.post(&token_url)
+            let resp = http
+                .post(&token_url)
                 .form(&[
                     ("grant_type", "authorization_code"),
                     ("code", &code),
@@ -222,9 +249,19 @@ impl OAuthManager {
                 Ok(r) if r.status().is_success() => {
                     match r.json::<serde_json::Value>().await {
                         Ok(data) => {
-                            let mut access_token = data.get("access_token").and_then(|t| t.as_str()).unwrap_or("").to_string();
-                            let refresh_token = data.get("refresh_token").and_then(|t| t.as_str()).map(|s| s.to_string());
-                            let id_token = data.get("id_token").and_then(|t| t.as_str()).map(|s| s.to_string());
+                            let mut access_token = data
+                                .get("access_token")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let refresh_token = data
+                                .get("refresh_token")
+                                .and_then(|t| t.as_str())
+                                .map(|s| s.to_string());
+                            let id_token = data
+                                .get("id_token")
+                                .and_then(|t| t.as_str())
+                                .map(|s| s.to_string());
 
                             // OpenAI: exchange id_token for API key (bills to subscription)
                             if provider_name_owned == "openai" {
@@ -234,71 +271,131 @@ impl OAuthManager {
                                     let org_id = {
                                         let parts: Vec<&str> = idt.split('.').collect();
                                         if parts.len() >= 2 {
-                                            use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+                                            use base64::{
+                                                engine::general_purpose::URL_SAFE_NO_PAD, Engine,
+                                            };
                                             let mut payload = parts[1].to_string();
                                             // Pad base64 if needed
-                                            while payload.len() % 4 != 0 { payload.push('='); }
-                                            URL_SAFE_NO_PAD.decode(&payload).ok()
-                                                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                                            while payload.len() % 4 != 0 {
+                                                payload.push('=');
+                                            }
+                                            URL_SAFE_NO_PAD
+                                                .decode(&payload)
+                                                .ok()
+                                                .and_then(|bytes| {
+                                                    serde_json::from_slice::<serde_json::Value>(
+                                                        &bytes,
+                                                    )
+                                                    .ok()
+                                                })
                                                 .and_then(|claims| {
-                                                    tracing::info!("OpenAI id_token claims keys: {:?}", claims.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+                                                    tracing::info!(
+                                                        "OpenAI id_token claims keys: {:?}",
+                                                        claims
+                                                            .as_object()
+                                                            .map(|o| o.keys().collect::<Vec<_>>())
+                                                    );
                                                     // Try organization_id directly or from organizations array
-                                                    claims.get("organization_id").and_then(|o| o.as_str()).map(|s| s.to_string())
+                                                    claims
+                                                        .get("organization_id")
+                                                        .and_then(|o| o.as_str())
+                                                        .map(|s| s.to_string())
                                                         .or_else(|| {
-                                                            claims.get("organizations").and_then(|o| o.as_array())
+                                                            claims
+                                                                .get("organizations")
+                                                                .and_then(|o| o.as_array())
                                                                 .and_then(|orgs| orgs.first())
-                                                                .and_then(|org| org.get("id").or_else(|| org.get("organization_id")))
+                                                                .and_then(|org| {
+                                                                    org.get("id").or_else(|| {
+                                                                        org.get("organization_id")
+                                                                    })
+                                                                })
                                                                 .and_then(|id| id.as_str())
                                                                 .map(|s| s.to_string())
                                                         })
                                                 })
-                                        } else { None }
+                                        } else {
+                                            None
+                                        }
                                     };
 
                                     tracing::info!("OpenAI: org_id from id_token: {:?}", org_id);
 
                                     // Build token exchange request
                                     let mut form_params = vec![
-                                        ("grant_type".to_string(), "urn:ietf:params:oauth:grant-type:token-exchange".to_string()),
+                                        (
+                                            "grant_type".to_string(),
+                                            "urn:ietf:params:oauth:grant-type:token-exchange"
+                                                .to_string(),
+                                        ),
                                         ("client_id".to_string(), client_id.clone()),
-                                        ("requested_token".to_string(), "openai-api-key".to_string()),
+                                        (
+                                            "requested_token".to_string(),
+                                            "openai-api-key".to_string(),
+                                        ),
                                         ("subject_token".to_string(), idt.clone()),
-                                        ("subject_token_type".to_string(), "urn:ietf:params:oauth:token-type:id_token".to_string()),
+                                        (
+                                            "subject_token_type".to_string(),
+                                            "urn:ietf:params:oauth:token-type:id_token".to_string(),
+                                        ),
                                     ];
                                     if let Some(ref oid) = org_id {
-                                        form_params.push(("organization_id".to_string(), oid.clone()));
+                                        form_params
+                                            .push(("organization_id".to_string(), oid.clone()));
                                     }
 
-                                    match http.post(&token_url)
-                                        .form(&form_params)
-                                        .send()
-                                        .await
-                                    {
+                                    match http.post(&token_url).form(&form_params).send().await {
                                         Ok(r) => {
                                             let status = r.status();
                                             let body = r.text().await.unwrap_or_default();
-                                            tracing::info!("OpenAI token exchange: {} {}", status, &body[..body.len().min(300)]);
+                                            tracing::info!(
+                                                "OpenAI token exchange: {} {}",
+                                                status,
+                                                &body[..body.len().min(300)]
+                                            );
                                             if status.is_success() {
-                                                if let Ok(key_data) = serde_json::from_str::<serde_json::Value>(&body) {
-                                                    if let Some(key) = key_data.get("access_token").and_then(|t| t.as_str()) {
+                                                if let Ok(key_data) =
+                                                    serde_json::from_str::<serde_json::Value>(&body)
+                                                {
+                                                    if let Some(key) = key_data
+                                                        .get("access_token")
+                                                        .and_then(|t| t.as_str())
+                                                    {
                                                         access_token = key.to_string();
-                                                        tracing::info!("OpenAI: got API key (prefix: {}...)", &access_token[..access_token.len().min(12)]);
+                                                        tracing::info!(
+                                                            "OpenAI: got API key (prefix: {}...)",
+                                                            &access_token
+                                                                [..access_token.len().min(12)]
+                                                        );
                                                     }
                                                 }
                                             }
                                         }
-                                        Err(e) => tracing::error!("OpenAI token exchange failed: {}", e),
+                                        Err(e) => {
+                                            tracing::error!("OpenAI token exchange failed: {}", e)
+                                        }
                                     }
                                 } else {
-                                    tracing::warn!("OpenAI: no id_token, cannot exchange for API key");
+                                    tracing::warn!(
+                                        "OpenAI: no id_token, cannot exchange for API key"
+                                    );
                                 }
                             }
 
                             let expires_in = data.get("expires_in").and_then(|e| e.as_u64());
-                            let expires_at = expires_in.map(|secs| chrono::Utc::now() + chrono::Duration::seconds(secs as i64));
+                            let expires_at = expires_in.map(|secs| {
+                                chrono::Utc::now() + chrono::Duration::seconds(secs as i64)
+                            });
 
-                            let tokens = OAuthTokens { access_token, refresh_token, expires_at };
-                            tokens_store.write().await.insert(provider_name_owned.clone(), tokens.clone());
+                            let tokens = OAuthTokens {
+                                access_token,
+                                refresh_token,
+                                expires_at,
+                            };
+                            tokens_store
+                                .write()
+                                .await
+                                .insert(provider_name_owned.clone(), tokens.clone());
 
                             // Save to Keychain
                             #[cfg(target_os = "macos")]
@@ -309,12 +406,17 @@ impl OAuthManager {
                                     "expires_at": tokens.expires_at,
                                 });
                                 let service = format!("homard.{}", provider_name_owned);
-                                let _ = crate::keychain::store_secret(&service, "oauth_tokens", &token_json.to_string());
+                                let _ = crate::keychain::store_secret(
+                                    &service,
+                                    "oauth_tokens",
+                                    &token_json.to_string(),
+                                );
                             }
 
                             // Save provider to config.json
                             let dirs = crate::config::HomardDirs::default_path();
-                            let mut config = crate::config::HomardConfig::load_or_default(&dirs.config_path());
+                            let mut config =
+                                crate::config::HomardConfig::load_or_default(&dirs.config_path());
                             let provider_config = crate::types::ProviderConfig {
                                 kind: match provider_name_owned.as_str() {
                                     "openai" => crate::types::ProviderKind::Openai,
@@ -323,7 +425,10 @@ impl OAuthManager {
                                 },
                                 auth_type: "oauth_pkce".to_string(),
                                 client_id: None,
-                                token_keychain_ref: Some(format!("homard.{}.oauth_tokens", provider_name_owned)),
+                                token_keychain_ref: Some(format!(
+                                    "homard.{}.oauth_tokens",
+                                    provider_name_owned
+                                )),
                                 api_key_keychain_ref: None,
                                 model: match provider_name_owned.as_str() {
                                     "openai" => "gpt-5.4".to_string(),
@@ -332,8 +437,13 @@ impl OAuthManager {
                                 },
                                 base_url: None,
                             };
-                            config.providers.insert(provider_name_owned.clone(), provider_config);
-                            if config.providers.len() == 1 || config.active_provider == "anthropic" && provider_name_owned == "openai" {
+                            config
+                                .providers
+                                .insert(provider_name_owned.clone(), provider_config);
+                            if config.providers.len() == 1
+                                || config.active_provider == "anthropic"
+                                    && provider_name_owned == "openai"
+                            {
                                 config.active_provider = provider_name_owned.clone();
                             }
                             let _ = config.save(&dirs.config_path());
@@ -377,7 +487,10 @@ impl OAuthManager {
 
     /// Retrieve and consume a pending PKCE verifier for a provider
     pub async fn take_verifier(&self, provider_name: &str) -> Option<String> {
-        self.pending_verifiers.write().await.remove(provider_name)
+        self.pending_verifiers
+            .write()
+            .await
+            .remove(provider_name)
             .map(|s| s.split("||").next().unwrap_or("").to_string())
     }
 
@@ -389,10 +502,14 @@ impl OAuthManager {
         code_verifier: &str,
         redirect_uri: &str,
     ) -> Result<OAuthTokens> {
-        let provider = self.providers.get(provider_name)
+        let provider = self
+            .providers
+            .get(provider_name)
             .ok_or_else(|| HomardError::OAuth(format!("Unknown provider: {}", provider_name)))?;
 
-        let resp = self.http.post(&provider.token_url)
+        let resp = self
+            .http
+            .post(&provider.token_url)
             .form(&[
                 ("grant_type", "authorization_code"),
                 ("code", code),
@@ -406,30 +523,44 @@ impl OAuthManager {
 
         if !resp.status().is_success() {
             let body = resp.text().await.unwrap_or_default();
-            return Err(HomardError::OAuth(format!("Token exchange failed: {}", body)));
+            return Err(HomardError::OAuth(format!(
+                "Token exchange failed: {}",
+                body
+            )));
         }
 
-        let data: serde_json::Value = resp.json().await
+        let data: serde_json::Value = resp
+            .json()
+            .await
             .map_err(|e| HomardError::OAuth(e.to_string()))?;
 
-        let access_token = data.get("access_token")
+        let access_token = data
+            .get("access_token")
             .and_then(|t| t.as_str())
             .ok_or_else(|| HomardError::OAuth("No access_token in response".to_string()))?
             .to_string();
 
-        let refresh_token = data.get("refresh_token")
+        let refresh_token = data
+            .get("refresh_token")
             .and_then(|t| t.as_str())
             .map(|s| s.to_string());
 
-        let expires_in = data.get("expires_in")
-            .and_then(|e| e.as_u64());
+        let expires_in = data.get("expires_in").and_then(|e| e.as_u64());
 
-        let expires_at = expires_in.map(|secs| chrono::Utc::now() + chrono::Duration::seconds(secs as i64));
+        let expires_at =
+            expires_in.map(|secs| chrono::Utc::now() + chrono::Duration::seconds(secs as i64));
 
-        let tokens = OAuthTokens { access_token, refresh_token, expires_at };
+        let tokens = OAuthTokens {
+            access_token,
+            refresh_token,
+            expires_at,
+        };
 
         // Store in memory
-        self.tokens.write().await.insert(provider_name.to_string(), tokens.clone());
+        self.tokens
+            .write()
+            .await
+            .insert(provider_name.to_string(), tokens.clone());
 
         // Store in Keychain
         #[cfg(target_os = "macos")]
@@ -468,22 +599,41 @@ impl OAuthManager {
             let service = format!("homard.{}", provider_name);
             if let Some(json_str) = crate::keychain::read_secret(&service, "oauth_tokens")? {
                 if let Ok(data) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                    let access_token = data.get("access_token").and_then(|t| t.as_str()).unwrap_or("").to_string();
-                    let refresh_token = data.get("refresh_token").and_then(|t| t.as_str()).map(|s| s.to_string());
-                    let expires_at = data.get("expires_at").and_then(|e| e.as_str())
+                    let access_token = data
+                        .get("access_token")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let refresh_token = data
+                        .get("refresh_token")
+                        .and_then(|t| t.as_str())
+                        .map(|s| s.to_string());
+                    let expires_at = data
+                        .get("expires_at")
+                        .and_then(|e| e.as_str())
                         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                         .map(|d| d.with_timezone(&chrono::Utc));
 
-                    let tokens = OAuthTokens { access_token, refresh_token, expires_at };
+                    let tokens = OAuthTokens {
+                        access_token,
+                        refresh_token,
+                        expires_at,
+                    };
 
                     // Check if expired
                     if let Some(exp) = tokens.expires_at {
                         if exp > chrono::Utc::now() + chrono::Duration::minutes(5) {
-                            self.tokens.write().await.insert(provider_name.to_string(), tokens.clone());
+                            self.tokens
+                                .write()
+                                .await
+                                .insert(provider_name.to_string(), tokens.clone());
                             return Ok(tokens.access_token);
                         }
                     } else {
-                        self.tokens.write().await.insert(provider_name.to_string(), tokens.clone());
+                        self.tokens
+                            .write()
+                            .await
+                            .insert(provider_name.to_string(), tokens.clone());
                         return Ok(tokens.access_token);
                     }
 
@@ -497,14 +647,21 @@ impl OAuthManager {
             }
         }
 
-        Err(HomardError::OAuth(format!("No valid token for '{}'. Please sign in.", provider_name)))
+        Err(HomardError::OAuth(format!(
+            "No valid token for '{}'. Please sign in.",
+            provider_name
+        )))
     }
 
     async fn refresh_token(&self, provider_name: &str, refresh_token: &str) -> Result<OAuthTokens> {
-        let provider = self.providers.get(provider_name)
+        let provider = self
+            .providers
+            .get(provider_name)
             .ok_or_else(|| HomardError::OAuth(format!("Unknown provider: {}", provider_name)))?;
 
-        let resp = self.http.post(&provider.token_url)
+        let resp = self
+            .http
+            .post(&provider.token_url)
             .form(&[
                 ("grant_type", "refresh_token"),
                 ("refresh_token", refresh_token),
@@ -516,20 +673,40 @@ impl OAuthManager {
 
         if !resp.status().is_success() {
             let body = resp.text().await.unwrap_or_default();
-            return Err(HomardError::OAuth(format!("Token refresh failed: {}", body)));
+            return Err(HomardError::OAuth(format!(
+                "Token refresh failed: {}",
+                body
+            )));
         }
 
-        let data: serde_json::Value = resp.json().await
+        let data: serde_json::Value = resp
+            .json()
+            .await
             .map_err(|e| HomardError::OAuth(e.to_string()))?;
 
-        let access_token = data.get("access_token").and_then(|t| t.as_str()).unwrap_or("").to_string();
-        let new_refresh = data.get("refresh_token").and_then(|t| t.as_str()).map(|s| s.to_string())
+        let access_token = data
+            .get("access_token")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+        let new_refresh = data
+            .get("refresh_token")
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string())
             .or_else(|| Some(refresh_token.to_string()));
         let expires_in = data.get("expires_in").and_then(|e| e.as_u64());
-        let expires_at = expires_in.map(|secs| chrono::Utc::now() + chrono::Duration::seconds(secs as i64));
+        let expires_at =
+            expires_in.map(|secs| chrono::Utc::now() + chrono::Duration::seconds(secs as i64));
 
-        let tokens = OAuthTokens { access_token, refresh_token: new_refresh, expires_at };
-        self.tokens.write().await.insert(provider_name.to_string(), tokens.clone());
+        let tokens = OAuthTokens {
+            access_token,
+            refresh_token: new_refresh,
+            expires_at,
+        };
+        self.tokens
+            .write()
+            .await
+            .insert(provider_name.to_string(), tokens.clone());
 
         #[cfg(target_os = "macos")]
         {
@@ -551,9 +728,8 @@ impl OAuthManager {
         {
             let service = format!("homard.{}", provider_name);
             // Defensive: catch any panics from keychain access (corrupt data, etc.)
-            let json_result = std::panic::catch_unwind(|| {
-                crate::keychain::read_secret(&service, "oauth_tokens")
-            });
+            let json_result =
+                std::panic::catch_unwind(|| crate::keychain::read_secret(&service, "oauth_tokens"));
             let json_str = match json_result {
                 Ok(Ok(Some(s))) => s,
                 Ok(Ok(None)) => return Ok(false),
@@ -568,13 +744,25 @@ impl OAuthManager {
             };
             if let Ok(data) = serde_json::from_str::<serde_json::Value>(&json_str) {
                 let tokens = OAuthTokens {
-                    access_token: data.get("access_token").and_then(|t| t.as_str()).unwrap_or("").to_string(),
-                    refresh_token: data.get("refresh_token").and_then(|t| t.as_str()).map(|s| s.to_string()),
-                    expires_at: data.get("expires_at").and_then(|e| e.as_str())
+                    access_token: data
+                        .get("access_token")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    refresh_token: data
+                        .get("refresh_token")
+                        .and_then(|t| t.as_str())
+                        .map(|s| s.to_string()),
+                    expires_at: data
+                        .get("expires_at")
+                        .and_then(|e| e.as_str())
                         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                         .map(|d| d.with_timezone(&chrono::Utc)),
                 };
-                self.tokens.write().await.insert(provider_name.to_string(), tokens);
+                self.tokens
+                    .write()
+                    .await
+                    .insert(provider_name.to_string(), tokens);
                 return Ok(true);
             }
             Ok(false)

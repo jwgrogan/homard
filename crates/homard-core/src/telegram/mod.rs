@@ -1,4 +1,4 @@
 pub mod client;
 pub mod poller;
 
-pub use client::{TelegramClient, TelegramStreamReporter, chunk_text, TELEGRAM_MAX_CHARS};
+pub use client::{chunk_text, TelegramClient, TelegramStreamReporter, TELEGRAM_MAX_CHARS};

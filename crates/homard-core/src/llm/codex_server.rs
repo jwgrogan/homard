@@ -2,12 +2,12 @@
 //! Keeps a single `codex app-server` process running and communicates via JSON-RPC over stdio.
 //! First turn ~2s, subsequent turns <1s (vs 15s with codex exec subprocess).
 
+use super::client::LlmResponse;
+use crate::error::{HomardError, Result};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::Mutex;
-use crate::error::{HomardError, Result};
-use super::client::LlmResponse;
 
 struct CodexProcess {
     stdin: ChildStdin,
@@ -45,9 +45,13 @@ impl CodexServer {
             .spawn()
             .map_err(|e| HomardError::Llm(format!("Failed to start codex app-server: {}", e)))?;
 
-        let stdin = child.stdin.take()
+        let stdin = child
+            .stdin
+            .take()
             .ok_or_else(|| HomardError::Llm("No stdin for codex app-server".to_string()))?;
-        let stdout = child.stdout.take()
+        let stdout = child
+            .stdout
+            .take()
             .ok_or_else(|| HomardError::Llm("No stdout for codex app-server".to_string()))?;
 
         let mut cp = CodexProcess {
@@ -83,7 +87,8 @@ impl CodexServer {
         cp.next_id += 1;
         send_msg(&mut cp.stdin, &thread_msg).await?;
         let r = recv_msg(&mut cp.stdout).await?;
-        let tid = r.get("result")
+        let tid = r
+            .get("result")
             .and_then(|r| r.get("thread"))
             .and_then(|t| t.get("id"))
             .and_then(|id| id.as_str())
@@ -96,7 +101,11 @@ impl CodexServer {
         // Drain notifications until MCP server is ready
         for _ in 0..20 {
             let n = recv_msg(&mut cp.stdout).await?;
-            if n.get("params").and_then(|p| p.get("status")).and_then(|s| s.as_str()) == Some("ready") {
+            if n.get("params")
+                .and_then(|p| p.get("status"))
+                .and_then(|s| s.as_str())
+                == Some("ready")
+            {
                 break;
             }
         }
@@ -128,10 +137,13 @@ impl CodexServer {
         self.ensure_running().await?;
 
         let mut proc = self.process.lock().await;
-        let cp = proc.as_mut()
+        let cp = proc
+            .as_mut()
             .ok_or_else(|| HomardError::Llm("Codex server not running".to_string()))?;
 
-        let tid = cp.thread_id.clone()
+        let tid = cp
+            .thread_id
+            .clone()
             .ok_or_else(|| HomardError::Llm("No thread ID".to_string()))?;
 
         let turn_msg = serde_json::json!({
@@ -152,7 +164,8 @@ impl CodexServer {
         let deadline = tokio::time::Instant::now() + timeout;
 
         loop {
-            let msg = tokio::time::timeout_at(deadline, recv_msg(&mut cp.stdout)).await
+            let msg = tokio::time::timeout_at(deadline, recv_msg(&mut cp.stdout))
+                .await
                 .map_err(|_| HomardError::Llm("Codex response timed out after 120s".to_string()))?
                 .map_err(|e| HomardError::Llm(format!("Codex read error: {}", e)))?;
 
@@ -160,7 +173,11 @@ impl CodexServer {
 
             match method {
                 "item/agentMessage/delta" => {
-                    if let Some(delta) = msg.get("params").and_then(|p| p.get("delta")).and_then(|d| d.as_str()) {
+                    if let Some(delta) = msg
+                        .get("params")
+                        .and_then(|p| p.get("delta"))
+                        .and_then(|d| d.as_str())
+                    {
                         text.push_str(delta);
                     }
                 }
@@ -180,7 +197,10 @@ impl CodexServer {
     /// Pre-warm the server at startup (call from daemon init)
     pub async fn warmup(&self) {
         if let Err(e) = self.ensure_running().await {
-            tracing::warn!("Codex app-server warmup failed (will retry on first chat): {}", e);
+            tracing::warn!(
+                "Codex app-server warmup failed (will retry on first chat): {}",
+                e
+            );
         }
     }
 
@@ -195,17 +215,32 @@ impl CodexServer {
 
 async fn send_msg(stdin: &mut ChildStdin, msg: &serde_json::Value) -> Result<()> {
     let data = serde_json::to_string(msg).map_err(|e| HomardError::Llm(e.to_string()))?;
-    stdin.write_all(data.as_bytes()).await.map_err(|e| HomardError::Llm(e.to_string()))?;
-    stdin.write_all(b"\n").await.map_err(|e| HomardError::Llm(e.to_string()))?;
-    stdin.flush().await.map_err(|e| HomardError::Llm(e.to_string()))?;
+    stdin
+        .write_all(data.as_bytes())
+        .await
+        .map_err(|e| HomardError::Llm(e.to_string()))?;
+    stdin
+        .write_all(b"\n")
+        .await
+        .map_err(|e| HomardError::Llm(e.to_string()))?;
+    stdin
+        .flush()
+        .await
+        .map_err(|e| HomardError::Llm(e.to_string()))?;
     Ok(())
 }
 
 async fn recv_msg(stdout: &mut BufReader<ChildStdout>) -> Result<serde_json::Value> {
     let mut line = String::new();
-    stdout.read_line(&mut line).await.map_err(|e| HomardError::Llm(e.to_string()))?;
+    stdout
+        .read_line(&mut line)
+        .await
+        .map_err(|e| HomardError::Llm(e.to_string()))?;
     if line.is_empty() {
-        return Err(HomardError::Llm("Codex app-server process exited".to_string()));
+        return Err(HomardError::Llm(
+            "Codex app-server process exited".to_string(),
+        ));
     }
-    serde_json::from_str(&line).map_err(|e| HomardError::Llm(format!("Invalid JSON from codex: {}", e)))
+    serde_json::from_str(&line)
+        .map_err(|e| HomardError::Llm(format!("Invalid JSON from codex: {}", e)))
 }

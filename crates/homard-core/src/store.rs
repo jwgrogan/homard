@@ -1,7 +1,7 @@
-use rusqlite::{Connection, params};
-use std::path::Path;
-use crate::types::*;
 use crate::error::Result;
+use crate::types::*;
+use rusqlite::{params, Connection};
+use std::path::Path;
 
 pub struct Store {
     conn: Connection,
@@ -108,7 +108,7 @@ impl Store {
     // Conversation methods
     pub fn list_channels(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
-            "SELECT channel FROM conversations GROUP BY channel ORDER BY MAX(rowid) DESC"
+            "SELECT channel FROM conversations GROUP BY channel ORDER BY MAX(rowid) DESC",
         )?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut channels: Vec<String> = rows.filter_map(|r| r.ok()).collect();
@@ -120,7 +120,10 @@ impl Store {
     }
 
     pub fn save_message(&self, channel: &str, msg: &ChatMessage) -> Result<()> {
-        let tool_calls_json = msg.tool_calls.as_ref().map(|tc| serde_json::to_string(tc).unwrap_or_default());
+        let tool_calls_json = msg
+            .tool_calls
+            .as_ref()
+            .map(|tc| serde_json::to_string(tc).unwrap_or_default());
         self.conn.execute(
             "INSERT INTO conversations (channel, role, content, tool_call_id, tool_calls) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![channel, msg.role, msg.content, msg.tool_call_id, tool_calls_json],
@@ -137,9 +140,14 @@ impl Store {
             let tool_calls = tool_calls_str.and_then(|s| serde_json::from_str(&s).ok());
             let ts: Option<String> = row.get(4)?;
             let timestamp = ts.and_then(|s| {
-                chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S").ok()
+                chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S")
+                    .ok()
                     .map(|naive| naive.and_utc())
-                    .or_else(|| chrono::DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&chrono::Utc)))
+                    .or_else(|| {
+                        chrono::DateTime::parse_from_rfc3339(&s)
+                            .ok()
+                            .map(|d| d.with_timezone(&chrono::Utc))
+                    })
             });
             Ok(ChatMessage {
                 role: row.get(0)?,
@@ -189,7 +197,13 @@ impl Store {
         Ok(())
     }
 
-    pub fn complete_run(&self, id: &str, status: RunStatus, error: Option<&str>, iterations: u32) -> Result<()> {
+    pub fn complete_run(
+        &self,
+        id: &str,
+        status: RunStatus,
+        error: Option<&str>,
+        iterations: u32,
+    ) -> Result<()> {
         let now = chrono::Utc::now();
         self.conn.execute(
             "UPDATE runs SET status = ?1, finished_at = ?2, error_message = ?3, iterations = ?4, duration_ms = (strftime('%s', ?2) - strftime('%s', started_at)) * 1000 WHERE id = ?5",
@@ -216,16 +230,61 @@ impl Store {
             Ok(AgentRun {
                 id: row.get(0)?,
                 channel: row.get(1)?,
-                trigger: serde_json::from_str(&format!("\"{}\"", trigger_str)).unwrap_or(Trigger::Chat),
-                status: serde_json::from_str(&format!("\"{}\"", status_str)).unwrap_or(RunStatus::Running),
-                started_at: chrono::DateTime::parse_from_rfc3339(&started_str).map(|d| d.with_timezone(&chrono::Utc)).unwrap_or_else(|_| chrono::Utc::now()),
-                finished_at: finished_str.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&chrono::Utc))),
+                trigger: serde_json::from_str(&format!("\"{}\"", trigger_str))
+                    .unwrap_or(Trigger::Chat),
+                status: serde_json::from_str(&format!("\"{}\"", status_str))
+                    .unwrap_or(RunStatus::Running),
+                started_at: chrono::DateTime::parse_from_rfc3339(&started_str)
+                    .map(|d| d.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(|_| chrono::Utc::now()),
+                finished_at: finished_str.and_then(|s| {
+                    chrono::DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|d| d.with_timezone(&chrono::Utc))
+                }),
                 duration_ms: row.get(6)?,
                 error_message: row.get(7)?,
                 iterations: row.get::<_, Option<u32>>(8)?.unwrap_or(0),
             })
         })?;
         Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    pub fn get_running_run(&self) -> Result<Option<AgentRun>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, channel, trigger, status, started_at, finished_at, duration_ms, error_message, iterations
+             FROM runs
+             WHERE status = 'running'
+             ORDER BY started_at DESC
+             LIMIT 1"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let trigger_str: String = row.get(2)?;
+            let status_str: String = row.get(3)?;
+            let started_str: String = row.get(4)?;
+            let finished_str: Option<String> = row.get(5)?;
+            Ok(AgentRun {
+                id: row.get(0)?,
+                channel: row.get(1)?,
+                trigger: serde_json::from_str(&format!("\"{}\"", trigger_str))
+                    .unwrap_or(Trigger::Chat),
+                status: serde_json::from_str(&format!("\"{}\"", status_str))
+                    .unwrap_or(RunStatus::Running),
+                started_at: chrono::DateTime::parse_from_rfc3339(&started_str)
+                    .map(|d| d.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(|_| chrono::Utc::now()),
+                finished_at: finished_str.and_then(|s| {
+                    chrono::DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|d| d.with_timezone(&chrono::Utc))
+                }),
+                duration_ms: row.get(6)?,
+                error_message: row.get(7)?,
+                iterations: row.get::<_, Option<u32>>(8)?.unwrap_or(0),
+            })
+        })?;
+        let next = rows.filter_map(|r| r.ok()).next();
+        Ok(next)
     }
 
     // CLI session tracking
@@ -245,7 +304,13 @@ impl Store {
         Ok(())
     }
 
-    pub fn complete_session(&self, id: &str, status: SessionStatus, output: Option<&str>, error: Option<&str>) -> Result<()> {
+    pub fn complete_session(
+        &self,
+        id: &str,
+        status: SessionStatus,
+        output: Option<&str>,
+        error: Option<&str>,
+    ) -> Result<()> {
         let now = chrono::Utc::now();
         self.conn.execute(
             "UPDATE cli_sessions SET status = ?1, output = ?2, error = ?3, finished_at = ?4, duration_ms = (strftime('%s', ?4) - strftime('%s', started_at)) * 1000 WHERE id = ?5",
@@ -274,12 +339,19 @@ impl Store {
                 cli: serde_json::from_str(&format!("\"{}\"", cli_str)).unwrap_or(CliType::Claude),
                 prompt: row.get(2)?,
                 directory: row.get(3)?,
-                status: serde_json::from_str(&format!("\"{}\"", status_str)).unwrap_or(SessionStatus::Running),
+                status: serde_json::from_str(&format!("\"{}\"", status_str))
+                    .unwrap_or(SessionStatus::Running),
                 output: row.get(5)?,
                 error: row.get(6)?,
                 pid: row.get(7)?,
-                started_at: chrono::DateTime::parse_from_rfc3339(&started_str).map(|d| d.with_timezone(&chrono::Utc)).unwrap_or_else(|_| chrono::Utc::now()),
-                finished_at: finished_str.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&chrono::Utc))),
+                started_at: chrono::DateTime::parse_from_rfc3339(&started_str)
+                    .map(|d| d.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(|_| chrono::Utc::now()),
+                finished_at: finished_str.and_then(|s| {
+                    chrono::DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|d| d.with_timezone(&chrono::Utc))
+                }),
                 duration_ms: row.get(10)?,
             })
         })?;
@@ -302,7 +374,9 @@ impl Store {
                 output: row.get(5)?,
                 error: row.get(6)?,
                 pid: row.get(7)?,
-                started_at: chrono::DateTime::parse_from_rfc3339(&started_str).map(|d| d.with_timezone(&chrono::Utc)).unwrap_or_else(|_| chrono::Utc::now()),
+                started_at: chrono::DateTime::parse_from_rfc3339(&started_str)
+                    .map(|d| d.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(|_| chrono::Utc::now()),
                 finished_at: None,
                 duration_ms: None,
             })
@@ -338,7 +412,7 @@ impl Store {
                     AVG(duration_ms) as avg_duration_ms
              FROM cron_runs
              GROUP BY schedule_name
-             ORDER BY last_run DESC"
+             ORDER BY last_run DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(CronHealth {
@@ -367,7 +441,13 @@ impl Store {
     }
 
     // Audit log
-    pub fn log_audit(&self, tool_name: &str, arguments: Option<&str>, result: Option<&str>, approved: bool) -> Result<()> {
+    pub fn log_audit(
+        &self,
+        tool_name: &str,
+        arguments: Option<&str>,
+        result: Option<&str>,
+        approved: bool,
+    ) -> Result<()> {
         self.conn.execute(
             "INSERT INTO audit_log (tool_name, arguments, result, approved) VALUES (?1, ?2, ?3, ?4)",
             params![tool_name, arguments, result, approved as i32],
