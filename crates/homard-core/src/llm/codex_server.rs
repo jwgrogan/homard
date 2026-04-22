@@ -4,7 +4,6 @@
 
 use super::client::LlmResponse;
 use crate::error::{HomardError, Result};
-use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::Mutex;

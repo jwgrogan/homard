@@ -413,7 +413,9 @@ async fn inspect_api_key_provider(
 
 async fn inspect_telegram(config: &HomardConfig) -> TelegramDiagnostics {
     let token_configured = config.telegram.token_keychain_ref.is_some();
+    #[allow(unused_mut)]
     let mut bot_name = None;
+    #[allow(unused_mut)]
     let mut connected = false;
 
     if token_configured {
