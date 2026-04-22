@@ -219,7 +219,9 @@ impl HomardDirs {
 // Telegram config helpers
 // ---------------------------------------------------------------------------
 
+#[cfg(target_os = "macos")]
 const TELEGRAM_KEYCHAIN_SERVICE: &str = "homard-telegram";
+#[cfg(target_os = "macos")]
 const TELEGRAM_KEYCHAIN_ACCOUNT: &str = "bot-token";
 
 /// Store Telegram bot token in Keychain and update config.json with the ref.

@@ -434,7 +434,9 @@ pub async fn telegram_status(State(state): State<AppState>) -> Json<serde_json::
     }
 
     // Try to get bot name if token is configured
+    #[allow(unused_mut)]
     let mut bot_name: Option<String> = None;
+    #[allow(unused_mut)]
     let mut connected = false;
     #[cfg(target_os = "macos")]
     if fresh.telegram.token_keychain_ref.is_some() {

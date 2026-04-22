@@ -1,12 +1,17 @@
 use std::sync::Arc;
+#[cfg(target_os = "macos")]
 use teloxide::payloads::GetUpdatesSetters;
+#[cfg(target_os = "macos")]
 use teloxide::prelude::*;
 use tokio_util::sync::CancellationToken;
+#[allow(unused_imports)]
 use tracing::{error, info, warn};
 
 use crate::agent::r#loop::AgentLoop;
-use crate::config::{add_paired_chat, validate_pairing_code, HomardConfig, HomardDirs};
+#[allow(unused_imports)]
+use crate::config::{add_paired_chat, validate_pairing_code, HomardDirs};
 use crate::telegram::client::TelegramClient;
+#[cfg(target_os = "macos")]
 use crate::types::Trigger;
 
 #[derive(Debug, PartialEq)]
@@ -57,13 +62,13 @@ pub fn parse_command(text: &str) -> Option<Command> {
 }
 
 pub async fn run_poller(
-    dirs: HomardDirs,
-    agent: Arc<AgentLoop>,
-    client: Arc<TelegramClient>,
-    cancel: CancellationToken,
-    stop_tx: tokio::sync::watch::Sender<bool>,
-    security: Arc<crate::security::SecurityManager>,
-    shared_config: Arc<tokio::sync::RwLock<crate::config::HomardConfig>>,
+    #[allow(unused_variables)] dirs: HomardDirs,
+    #[allow(unused_variables)] agent: Arc<AgentLoop>,
+    #[allow(unused_variables)] client: Arc<TelegramClient>,
+    #[allow(unused_variables)] cancel: CancellationToken,
+    #[allow(unused_variables)] stop_tx: tokio::sync::watch::Sender<bool>,
+    #[allow(unused_variables)] security: Arc<crate::security::SecurityManager>,
+    #[allow(unused_variables)] shared_config: Arc<tokio::sync::RwLock<crate::config::HomardConfig>>,
 ) {
     // Wait for a token to be configured (checks every 10s)
     #[cfg(not(target_os = "macos"))]
@@ -119,7 +124,7 @@ pub async fn run_poller(
                 }
             };
 
-            let config = HomardConfig::load_or_default(&dirs.config_path());
+            let config = shared_config.read().await.clone();
 
             for update in &updates {
                 offset = update.id.as_offset();
@@ -151,7 +156,12 @@ pub async fn run_poller(
 
                 // Auto-pair allowed users on first message
                 if is_allowed && !config.telegram.paired_chat_ids.contains(&chat_id_str) {
-                    let _ = add_paired_chat(&dirs, &chat_id_str);
+                    if add_paired_chat(&dirs, &chat_id_str).is_ok() {
+                        let mut cfg = shared_config.write().await;
+                        if !cfg.telegram.paired_chat_ids.contains(&chat_id_str) {
+                            cfg.telegram.paired_chat_ids.push(chat_id_str.clone());
+                        }
+                    }
                     info!(
                         "Telegram: auto-paired chat {} for allowed user @{}",
                         chat_id, username
@@ -173,6 +183,12 @@ pub async fn run_poller(
                             match validate_pairing_code(&dirs, &code) {
                                 Ok(true) => match add_paired_chat(&dirs, &chat_id_str) {
                                     Ok(()) => {
+                                        {
+                                            let mut cfg = shared_config.write().await;
+                                            if !cfg.telegram.paired_chat_ids.contains(&chat_id_str) {
+                                                cfg.telegram.paired_chat_ids.push(chat_id_str.clone());
+                                            }
+                                        }
                                         let _ = client
                                             .send_message(
                                                 chat_id,
@@ -454,6 +470,14 @@ mod tests {
             parse_command("/pair ABCD1234"),
             Some(Command::Pair("ABCD1234".to_string()))
         );
+        assert_eq!(
+            parse_command("/pair"),
+            Some(Command::Pair(String::new()))
+        );
+        assert_eq!(
+            parse_command("/pair "),
+            Some(Command::Pair(String::new()))
+        );
     }
 
     #[test]
@@ -478,5 +502,14 @@ mod tests {
     #[test]
     fn test_parse_command_regular_text() {
         assert_eq!(parse_command("hello world"), None);
+        assert_eq!(parse_command("/unknown"), None);
+    }
+
+    #[test]
+    fn test_parse_command_claude_with_dir() {
+        assert_eq!(
+            parse_command("/claude fix tests --dir ./site"),
+            Some(Command::Claude("fix tests --dir ./site".to_string()))
+        );
     }
 }
