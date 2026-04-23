@@ -388,6 +388,14 @@ pub async fn run_poller(
                                 ])
                                 .output();
                             let _ = std::fs::remove_file(&plist);
+
+                            // Persist to config
+                            {
+                                let mut config = shared_config.write().await;
+                                config.server_mode = crate::types::ServerMode::Off;
+                                let _ = config.save(&dirs.config_path());
+                            }
+
                             let _ = client
                                 .send_message(
                                     chat_id,
@@ -395,6 +403,15 @@ pub async fn run_poller(
                                 )
                                 .await;
                         } else {
+                            // Even if plist is missing, ensure config is in sync
+                            {
+                                let mut config = shared_config.write().await;
+                                if config.server_mode != crate::types::ServerMode::Off {
+                                    config.server_mode = crate::types::ServerMode::Off;
+                                    let _ = config.save(&dirs.config_path());
+                                }
+                            }
+
                             let _ = client
                                 .send_message(chat_id, "Server mode is already off.")
                                 .await;
