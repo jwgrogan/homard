@@ -37,20 +37,20 @@ pub fn parse_command(text: &str) -> Option<Command> {
     if text == "/stop" {
         return Some(Command::Stop);
     }
-    if text.starts_with("/pair ") {
-        return Some(Command::Pair(text[6..].trim().to_string()));
+    if let Some(stripped) = text.strip_prefix("/pair") {
+        if stripped.is_empty() || stripped.starts_with(' ') {
+            return Some(Command::Pair(stripped.trim().to_string()));
+        }
     }
-    if text.starts_with("/pair") {
-        return Some(Command::Pair(String::new()));
+    if let Some(stripped) = text.strip_prefix("/perms") {
+        if stripped.starts_with(' ') {
+            return Some(Command::Perms(stripped.trim().to_string()));
+        }
     }
-    if text.starts_with("/perms ") {
-        return Some(Command::Perms(text[7..].trim().to_string()));
-    }
-    if text.starts_with("/claude ") {
-        return Some(Command::Claude(text[8..].trim().to_string()));
-    }
-    if text == "/claude" {
-        return Some(Command::Claude(String::new()));
+    if let Some(stripped) = text.strip_prefix("/claude") {
+        if stripped.is_empty() || stripped.starts_with(' ') {
+            return Some(Command::Claude(stripped.trim().to_string()));
+        }
     }
     if text == "/server off" {
         return Some(Command::ServerOff);
@@ -508,6 +508,8 @@ mod tests {
             parse_command("/perms autonomous"),
             Some(Command::Perms("autonomous".to_string()))
         );
+        assert_eq!(parse_command("/perms"), None);
+        assert_eq!(parse_command("/perms "), None);
     }
 
     #[test]
@@ -528,5 +530,14 @@ mod tests {
             parse_command("/claude fix tests --dir ./site"),
             Some(Command::Claude("fix tests --dir ./site".to_string()))
         );
+    }
+
+    #[test]
+    fn test_parse_command_greedy_bug() {
+        // These should NOT match
+        assert_eq!(parse_command("/pairing"), None);
+        assert_eq!(parse_command("/statuses"), None);
+        assert_eq!(parse_command("/claudette"), None);
+        assert_eq!(parse_command("/permissions"), None);
     }
 }
