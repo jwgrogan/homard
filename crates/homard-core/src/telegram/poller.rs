@@ -43,7 +43,7 @@ pub fn parse_command(text: &str) -> Option<Command> {
         }
     }
     if let Some(stripped) = text.strip_prefix("/perms") {
-        if stripped.is_empty() || stripped.starts_with(' ') {
+        if stripped.starts_with(' ') {
             return Some(Command::Perms(stripped.trim().to_string()));
         }
     }
@@ -508,6 +508,8 @@ mod tests {
             parse_command("/perms autonomous"),
             Some(Command::Perms("autonomous".to_string()))
         );
+        assert_eq!(parse_command("/perms"), None);
+        assert_eq!(parse_command("/perms "), None);
     }
 
     #[test]
