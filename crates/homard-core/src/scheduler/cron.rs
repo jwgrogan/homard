@@ -162,14 +162,14 @@ fn matches_cron(cron_expr: &str, now: &chrono::DateTime<chrono::Utc>) -> bool {
 
     let minute = local.format("%M").to_string().parse::<u32>().unwrap_or(0);
     let hour = local.format("%H").to_string().parse::<u32>().unwrap_or(0);
-    let _day = local.format("%d").to_string().parse::<u32>().unwrap_or(0);
-    let _month = local.format("%m").to_string().parse::<u32>().unwrap_or(0);
+    let day = local.format("%d").to_string().parse::<u32>().unwrap_or(0);
+    let month = local.format("%m").to_string().parse::<u32>().unwrap_or(0);
     let dow = local.format("%u").to_string().parse::<u32>().unwrap_or(0); // 1=Mon, 7=Sun
 
     let min_match = parts[0] == "*" || parts[0].parse::<u32>().ok() == Some(minute);
     let hour_match = parts[1] == "*" || parts[1].parse::<u32>().ok() == Some(hour);
-    let dom_match = parts[2] == "*";
-    let mon_match = parts[3] == "*";
+    let dom_match = parts[2] == "*" || parts[2].parse::<u32>().ok() == Some(day);
+    let mon_match = parts[3] == "*" || parts[3].parse::<u32>().ok() == Some(month);
     // Convert cron dow (0=Sun, 1=Mon..6=Sat) to chrono (1=Mon..7=Sun)
     let dow_match = parts[4] == "*" || {
         let cron_dow = parts[4].parse::<u32>().unwrap_or(99);
@@ -178,4 +178,29 @@ fn matches_cron(cron_expr: &str, now: &chrono::DateTime<chrono::Utc>) -> bool {
     };
 
     min_match && hour_match && dom_match && mon_match && dow_match
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{TimeZone, Utc, Local};
+
+    #[test]
+    fn test_matches_cron_day_and_month() {
+        // Use local time to avoid timezone confusion in tests since matches_cron uses Local
+        let now_local = Local.with_ymd_and_hms(2024, 6, 15, 9, 0, 0).unwrap();
+        let now_utc = now_local.with_timezone(&Utc);
+
+        // Matches day and month
+        assert!(matches_cron("0 9 15 6 *", &now_utc), "Should match 15th of June at 9:00");
+
+        // Fails day
+        assert!(!matches_cron("0 9 16 6 *", &now_utc), "Should NOT match 16th of June");
+
+        // Fails month
+        assert!(!matches_cron("0 9 15 7 *", &now_utc), "Should NOT match 15th of July");
+
+        // Matches *
+        assert!(matches_cron("0 9 * * *", &now_utc), "Should match * * at 9:00");
+    }
 }
