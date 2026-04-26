@@ -43,7 +43,7 @@ pub fn parse_command(text: &str) -> Option<Command> {
         }
     }
     if let Some(stripped) = text.strip_prefix("/perms") {
-        if stripped.starts_with(' ') {
+        if stripped.is_empty() || stripped.starts_with(' ') {
             return Some(Command::Perms(stripped.trim().to_string()));
         }
     }
@@ -229,26 +229,32 @@ pub async fn run_poller(
                         });
                     }
                     Some(Command::Perms(level)) if is_allowed => {
-                        let new_level = match level.as_str() {
-                            "autonomous" | "auto" => crate::types::PermissionLevel::Autonomous,
-                            "locked" | "lock" => crate::types::PermissionLevel::Locked,
-                            _ => crate::types::PermissionLevel::Supervised,
-                        };
-                        security.set_permission_level(new_level.clone()).await;
-                        // Persist to config
-                        {
-                            let mut config = shared_config.write().await;
-                            config.permission_level = new_level.clone();
-                            let _ = config.save(&dirs.config_path());
+                        if level.is_empty() {
+                            let _ = client
+                                .send_message(chat_id, "Usage: /perms autonomous|supervised|locked")
+                                .await;
+                        } else {
+                            let new_level = match level.as_str() {
+                                "autonomous" | "auto" => crate::types::PermissionLevel::Autonomous,
+                                "locked" | "lock" => crate::types::PermissionLevel::Locked,
+                                _ => crate::types::PermissionLevel::Supervised,
+                            };
+                            security.set_permission_level(new_level.clone()).await;
+                            // Persist to config
+                            {
+                                let mut config = shared_config.write().await;
+                                config.permission_level = new_level.clone();
+                                let _ = config.save(&dirs.config_path());
+                            }
+                            let name = match new_level {
+                                crate::types::PermissionLevel::Supervised => "supervised",
+                                crate::types::PermissionLevel::Autonomous => "autonomous",
+                                crate::types::PermissionLevel::Locked => "locked",
+                            };
+                            let _ = client
+                                .send_message(chat_id, &format!("Permission level: {}", name))
+                                .await;
                         }
-                        let name = match new_level {
-                            crate::types::PermissionLevel::Supervised => "supervised",
-                            crate::types::PermissionLevel::Autonomous => "autonomous",
-                            crate::types::PermissionLevel::Locked => "locked",
-                        };
-                        let _ = client
-                            .send_message(chat_id, &format!("Permission level: {}", name))
-                            .await;
                     }
                     Some(Command::Claude(prompt)) if is_allowed => {
                         if prompt.is_empty() {
@@ -508,8 +514,8 @@ mod tests {
             parse_command("/perms autonomous"),
             Some(Command::Perms("autonomous".to_string()))
         );
-        assert_eq!(parse_command("/perms"), None);
-        assert_eq!(parse_command("/perms "), None);
+        assert_eq!(parse_command("/perms"), Some(Command::Perms(String::new())));
+        assert_eq!(parse_command("/perms "), Some(Command::Perms(String::new())));
     }
 
     #[test]
