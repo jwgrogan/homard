@@ -43,7 +43,7 @@ pub fn parse_command(text: &str) -> Option<Command> {
         }
     }
     if let Some(stripped) = text.strip_prefix("/perms") {
-        if stripped.starts_with(' ') {
+        if stripped.is_empty() || stripped.starts_with(' ') {
             return Some(Command::Perms(stripped.trim().to_string()));
         }
     }
@@ -59,6 +59,15 @@ pub fn parse_command(text: &str) -> Option<Command> {
         return Some(Command::ServerOn);
     }
     None
+}
+
+fn parse_permission_level(level: &str) -> Option<crate::types::PermissionLevel> {
+    match level {
+        "autonomous" | "auto" => Some(crate::types::PermissionLevel::Autonomous),
+        "supervised" => Some(crate::types::PermissionLevel::Supervised),
+        "locked" | "lock" => Some(crate::types::PermissionLevel::Locked),
+        _ => None,
+    }
 }
 
 pub async fn run_poller(
@@ -185,8 +194,11 @@ pub async fn run_poller(
                                     Ok(()) => {
                                         {
                                             let mut cfg = shared_config.write().await;
-                                            if !cfg.telegram.paired_chat_ids.contains(&chat_id_str) {
-                                                cfg.telegram.paired_chat_ids.push(chat_id_str.clone());
+                                            if !cfg.telegram.paired_chat_ids.contains(&chat_id_str)
+                                            {
+                                                cfg.telegram
+                                                    .paired_chat_ids
+                                                    .push(chat_id_str.clone());
                                             }
                                         }
                                         let _ = client
@@ -229,26 +241,27 @@ pub async fn run_poller(
                         });
                     }
                     Some(Command::Perms(level)) if is_allowed => {
-                        let new_level = match level.as_str() {
-                            "autonomous" | "auto" => crate::types::PermissionLevel::Autonomous,
-                            "locked" | "lock" => crate::types::PermissionLevel::Locked,
-                            _ => crate::types::PermissionLevel::Supervised,
-                        };
-                        security.set_permission_level(new_level.clone()).await;
-                        // Persist to config
-                        {
-                            let mut config = shared_config.write().await;
-                            config.permission_level = new_level.clone();
-                            let _ = config.save(&dirs.config_path());
+                        if let Some(new_level) = parse_permission_level(level.as_str()) {
+                            security.set_permission_level(new_level.clone()).await;
+                            // Persist to config
+                            {
+                                let mut config = shared_config.write().await;
+                                config.permission_level = new_level.clone();
+                                let _ = config.save(&dirs.config_path());
+                            }
+                            let name = match new_level {
+                                crate::types::PermissionLevel::Supervised => "supervised",
+                                crate::types::PermissionLevel::Autonomous => "autonomous",
+                                crate::types::PermissionLevel::Locked => "locked",
+                            };
+                            let _ = client
+                                .send_message(chat_id, &format!("Permission level: {}", name))
+                                .await;
+                        } else {
+                            let _ = client
+                                .send_message(chat_id, "Usage: /perms autonomous|supervised|locked")
+                                .await;
                         }
-                        let name = match new_level {
-                            crate::types::PermissionLevel::Supervised => "supervised",
-                            crate::types::PermissionLevel::Autonomous => "autonomous",
-                            crate::types::PermissionLevel::Locked => "locked",
-                        };
-                        let _ = client
-                            .send_message(chat_id, &format!("Permission level: {}", name))
-                            .await;
                     }
                     Some(Command::Claude(prompt)) if is_allowed => {
                         if prompt.is_empty() {
@@ -476,9 +489,18 @@ mod tests {
 
     #[test]
     fn test_parse_command_claude() {
-        assert_eq!(parse_command("/claude"), Some(Command::Claude(String::new())));
-        assert_eq!(parse_command("/claude  "), Some(Command::Claude(String::new())));
-        assert_eq!(parse_command("/claude fix tests"), Some(Command::Claude("fix tests".to_string())));
+        assert_eq!(
+            parse_command("/claude"),
+            Some(Command::Claude(String::new()))
+        );
+        assert_eq!(
+            parse_command("/claude  "),
+            Some(Command::Claude(String::new()))
+        );
+        assert_eq!(
+            parse_command("/claude fix tests"),
+            Some(Command::Claude("fix tests".to_string()))
+        );
     }
 
     #[test]
@@ -487,14 +509,8 @@ mod tests {
             parse_command("/pair ABCD1234"),
             Some(Command::Pair("ABCD1234".to_string()))
         );
-        assert_eq!(
-            parse_command("/pair"),
-            Some(Command::Pair(String::new()))
-        );
-        assert_eq!(
-            parse_command("/pair "),
-            Some(Command::Pair(String::new()))
-        );
+        assert_eq!(parse_command("/pair"), Some(Command::Pair(String::new())));
+        assert_eq!(parse_command("/pair "), Some(Command::Pair(String::new())));
     }
 
     #[test]
@@ -508,8 +524,37 @@ mod tests {
             parse_command("/perms autonomous"),
             Some(Command::Perms("autonomous".to_string()))
         );
-        assert_eq!(parse_command("/perms"), None);
-        assert_eq!(parse_command("/perms "), None);
+        assert_eq!(parse_command("/perms"), Some(Command::Perms(String::new())));
+        assert_eq!(
+            parse_command("/perms "),
+            Some(Command::Perms(String::new()))
+        );
+    }
+
+    #[test]
+    fn test_parse_permission_level() {
+        assert_eq!(
+            parse_permission_level("autonomous"),
+            Some(crate::types::PermissionLevel::Autonomous)
+        );
+        assert_eq!(
+            parse_permission_level("auto"),
+            Some(crate::types::PermissionLevel::Autonomous)
+        );
+        assert_eq!(
+            parse_permission_level("supervised"),
+            Some(crate::types::PermissionLevel::Supervised)
+        );
+        assert_eq!(
+            parse_permission_level("locked"),
+            Some(crate::types::PermissionLevel::Locked)
+        );
+        assert_eq!(
+            parse_permission_level("lock"),
+            Some(crate::types::PermissionLevel::Locked)
+        );
+        assert_eq!(parse_permission_level(""), None);
+        assert_eq!(parse_permission_level("typo"), None);
     }
 
     #[test]
