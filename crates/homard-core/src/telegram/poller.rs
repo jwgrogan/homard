@@ -24,6 +24,7 @@ pub enum Command {
     Claude(String), // /claude <prompt> — spawn a Claude session
     ServerOff,
     ServerOn,
+    ServerUsage,
 }
 
 pub fn parse_command(text: &str) -> Option<Command> {
@@ -52,15 +53,22 @@ pub fn parse_command(text: &str) -> Option<Command> {
             return Some(Command::Claude(stripped.trim().to_string()));
         }
     }
-    if text == "/server off" {
-        return Some(Command::ServerOff);
-    }
-    if text == "/server on" {
-        return Some(Command::ServerOn);
+    if let Some(stripped) = text.strip_prefix("/server") {
+        if stripped.is_empty() || stripped.starts_with(' ') {
+            let arg = stripped.trim();
+            if arg == "off" {
+                return Some(Command::ServerOff);
+            }
+            if arg == "on" {
+                return Some(Command::ServerOn);
+            }
+            return Some(Command::ServerUsage);
+        }
     }
     None
 }
 
+#[cfg(target_os = "macos")]
 fn parse_permission_level(level: &str) -> Option<crate::types::PermissionLevel> {
     match level {
         "autonomous" | "auto" => Some(crate::types::PermissionLevel::Autonomous),
@@ -433,6 +441,11 @@ pub async fn run_poller(
                     Some(Command::ServerOn) if is_allowed => {
                         let _ = client.send_message(chat_id, "Use `homard install` from the CLI or the tray app to enable server mode.").await;
                     }
+                    Some(Command::ServerUsage) if is_allowed => {
+                        let _ = client
+                            .send_message(chat_id, "Usage: /server on|off")
+                            .await;
+                    }
                     Some(_) if !is_allowed => {
                         let _ = client
                             .send_message(chat_id, "Send /start to connect with Homard.")
@@ -514,6 +527,13 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_command_server_usage() {
+        assert_eq!(parse_command("/server"), Some(Command::ServerUsage));
+        assert_eq!(parse_command("/server "), Some(Command::ServerUsage));
+        assert_eq!(parse_command("/server status"), Some(Command::ServerUsage));
+    }
+
+    #[test]
     fn test_parse_command_stop() {
         assert_eq!(parse_command("/stop"), Some(Command::Stop));
     }
@@ -532,6 +552,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn test_parse_permission_level() {
         assert_eq!(
             parse_permission_level("autonomous"),
@@ -561,6 +582,9 @@ mod tests {
     fn test_parse_command_server() {
         assert_eq!(parse_command("/server off"), Some(Command::ServerOff));
         assert_eq!(parse_command("/server on"), Some(Command::ServerOn));
+        // Bug: extra spaces currently fail because of exact string matching
+        assert_eq!(parse_command("/server  off"), Some(Command::ServerOff));
+        assert_eq!(parse_command("/server   on"), Some(Command::ServerOn));
     }
 
     #[test]
