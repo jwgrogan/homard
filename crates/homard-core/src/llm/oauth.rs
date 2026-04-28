@@ -274,13 +274,9 @@ impl OAuthManager {
                                             use base64::{
                                                 engine::general_purpose::URL_SAFE_NO_PAD, Engine,
                                             };
-                                            let mut payload = parts[1].to_string();
-                                            // Pad base64 if needed
-                                            while payload.len() % 4 != 0 {
-                                                payload.push('=');
-                                            }
+                                            let payload = parts[1];
                                             URL_SAFE_NO_PAD
-                                                .decode(&payload)
+                                                .decode(payload)
                                                 .ok()
                                                 .and_then(|bytes| {
                                                     serde_json::from_slice::<serde_json::Value>(
@@ -772,5 +768,19 @@ impl OAuthManager {
             let _ = provider_name;
             Ok(false)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+
+    #[test]
+    fn test_openai_id_token_decoding_fix() {
+        // URL_SAFE_NO_PAD should decode unpadded base64url successfully
+        let payload = "YQ"; // "a"
+        let res = URL_SAFE_NO_PAD.decode(payload);
+        assert!(res.is_ok(), "URL_SAFE_NO_PAD failed to decode unpadded string '{}': {:?}", payload, res.err());
+        assert_eq!(res.unwrap(), b"a");
     }
 }
